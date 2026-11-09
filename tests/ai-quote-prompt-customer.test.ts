@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildCustomerSystemPrompt } from '@/lib/ai-quote/prompt-customer';
 import { VALID_PAPER_NAMES } from '@/lib/ai-quote/prompt';
-import { detectCustomerEscalation } from '@/lib/ai-quote/customer-triggers';
+import { detectCustomerEscalation, detectHumanRequest } from '@/lib/ai-quote/customer-triggers';
 
 const p = buildCustomerSystemPrompt();
 
@@ -336,5 +336,34 @@ describe('customer prompt — round-2 v3 fixes (2026-11-05)', () => {
 describe('customer prompt — final-review pins (2026-11-05)', () => {
   it('binding hand-off exception list keeps ขอบกาว', () => {
     expect(p).toMatch(/นอกจาก[^\n]*ขอบกาว/);
+  });
+});
+
+// Round 3 (2026-11-09, prompt v4): a *volume* question ("พิมพ์มากกว่า 1000 ใบ ลดราคามั้ย")
+// is not a discount ask — it stays in AI mode (re-quote with the new qty, or ask
+// the qty with one pinned sentence). The hand-off phrase closes AI mode via
+// detectCustomerEscalation, so the pinned sentence must never contain it, and
+// the escape hatch it advertises ("คุยกับทีมงาน") must really trip detectHumanRequest.
+describe('customer prompt — round-3 v4: volume question ≠ discount ask (2026-11-09)', () => {
+  const VOLUME_ASK = 'ราคาต่อใบลดลงตามจำนวนค่ะ ต้องการประมาณกี่ใบคะ น้อง PP ตีราคาให้ได้เลย (ถ้าต้องการส่วนลดพิเศษ พิมพ์ "คุยกับทีมงาน" ได้เลยค่ะ)';
+  it('has the intent-split section and points the price rule at it', () => {
+    expect(p).toContain('## ถามราคาตามจำนวน ≠ ขอส่วนลด');
+    expect(p).toMatch(/ห้ามให้ส่วนลด\/ต่อราคาเอง[^\n]*ถามราคาตามจำนวน ≠ ขอส่วนลด/);
+  });
+  it('volume question with a new qty re-quotes via compute_quote with the same spec', () => {
+    expect(p).toMatch(/มีจำนวนใหม่ → เรียก `compute_quote` ด้วยจำนวนนั้น สเปกเดิม/);
+  });
+  it('volume question without a qty uses the pinned sentence that keeps AI mode open', () => {
+    expect(p).toContain(VOLUME_ASK);
+    expect(p).toMatch(/ยังไม่มีจำนวน[^\n]*ห้ามใช้วลี "ส่งต่อทีมงาน" \/ "ให้ทีมงานประเมิน"/);
+    expect(detectCustomerEscalation(0, VOLUME_ASK)).toBe(false);
+    expect(detectHumanRequest('คุยกับทีมงาน')).toBe(true); // the escape hatch the sentence offers works at the router
+  });
+  it('bare discount asks and every namecard discount ask still hand off', () => {
+    expect(p).toMatch(/ขอลด\/ต่อราคาจากราคาที่แจ้งแล้วโดยไม่มีจำนวนใหม่[^\n]*รวมนามบัตรที่ขอลดทุกแบบ[^\n]*→ ส่งต่อทีมงาน/);
+    expect(p).toMatch(/ลูกค้าขอต่อราคา\/ส่วนลดโดยไม่มีจำนวนใหม่/); // hand-off list entry is scoped the same way
+  });
+  it('prompt stays within the cap after v4', () => {
+    expect(p.split('\n').length).toBeLessThanOrEqual(185);
   });
 });
