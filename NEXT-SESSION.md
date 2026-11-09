@@ -6,7 +6,7 @@
 >
 > ## ⏳ Pending (2026-11-09)
 > 1. 🧪 **คุณนุ๊ก — smoke v4 บน LINE จริง (เปิด session ใหม่ — ไม่งั้นโมเดล reuse เลขเก่า)**: (a) "ใบปลิว A5 1000 ใบ" → 💰 ราคา (b) "พิมพ์มากกว่า 1000 ใบ ลดราคามั้ย" → ประโยคคงที่ถามจำนวน **ไม่มี EXIT_TEXT / ยังอยู่โหมด AI** (c) "ถ้า 2000 ใบเท่าไหร่" → 💰 ใบปลิว A5 2,000 ใบ ราคาใหม่ (d) "ลดหน่อยได้มั้ย" → ส่งต่อทีมงาน + ปิดโหมด (e) ทางออก: หลัง (b) พิมพ์ "คุยกับทีมงาน" → ส่งต่อทันที · **รวม (a)-(d) ของ Pending 11/04 ข้อ 1 ที่ยังไม่ confirm** (A6 ราคารวม · สันห่วง 📋 +15 · เวลาผลิต/ค่าส่ง · probe I2)
-> 2. ⏳ **Post-deploy smoke** pin headSha — Claude เติมผลท้าย session
+> 2. ✅ ~~**CLOSED 2026-11-09** — Post-deploy smoke เขียว pin headSha `df7a154` (push code + eval + docs ครั้งเดียว 5 commits `fdce02f..df7a154`): [run 42562583338](https://github.com/witsarutnook/penprinting-dashboard/actions/runs/42562583338) · suite 950/950 บน tree เดียวกัน — Claude ยืนยันเองท้าย session~~
 > 3. 🔑 **คุณนุ๊ก — ลบ API key `pp-eval-local`** ใน Console — เครดิตหมดวันนี้ 11/09; รอบ 3 ใช้ ≈ $6.3 (baseline 10 rows + pilot + full); รอบหน้าถ้ารัน eval ต้องเติมเครดิต/คีย์ใหม่ (~$5/รอบ)
 > 4. 📐 ยกจาก 11/04 ข้อ 3-4: calc `binding: ring` + A6/B5 native (หนังสือก่อน) · **I2/I3/M5** defer ต่อ · **M4 มีหลักฐานเพิ่ม**: v4 s106-t4 rep0 พูด "ตีราคาในระบบไม่ได้" (คำ "ระบบ" จาก `tools.ts:27`/`run.ts:180` รั่ว 1 rep ใน 164) — ถ้าเจอบน LINE จริงค่อยแก้ข้อความ tool
 > 5. ℹ️ ยกเดิม: I4 shipped_date อนาคต 5 แถว · 🔑 remote branch เก่า 7 ตัว (มิ.ย.-ก.ค.) · 🧪 smoke prod `/track` ใบเก่า + `/analytics`
