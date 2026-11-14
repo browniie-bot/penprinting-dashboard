@@ -101,3 +101,14 @@ Execution mode: subagent-driven (user chose "แบบ 1"). Controller model: fa
 - Task 4: minor (deferred): `isError` / JSON-RPC error messages carry only the tool name + code (safe, but thin for debugging)
 - Task 4: minor (deferred): the 10 s timeout is per HTTP request, not per `call()` — a 404 re-init sequence can take up to ~3 × 3 requests × 10 s worst case; callers inside the 60 s `after()` budget should know
 - Task 4: complete (commits 3ea87c8..342108b, review clean)
+- Task 5: BASE 3750937 — implementer (sonnet) DONE — commit 12c6f27; 1055 tests green.
+- Task 5: review (sonnet) ⚠️/Needs fixes — Important: `getQuotation` fell back to a DIFFERENT quotation when no entry carried the requested code (wrong QO could be opened). Sent back to the same implementer.
+- Task 5: fix round 1 — commit 05f3765: match on the requested code only (trim, case-insensitive), otherwise `null`; fallback removed; 2 new tests. Re-review (same reviewer, fix diff only) ✅ Approved — Important closed, no mandated test weakened.
+- Ruling: Task 5 `getContactName` sends `limit: 10` (task text: `limit: 1`) and matches the exact code within those rows — accepted and pinned by a test; an exact-code match over 10 rows cannot be hidden by a substring hit on row 1 — cost if wrong: if Peak rejects `limit: 10` on `search_contacts` the name lookup throws and `/order` answers "Peak ไม่ตอบ" (seen at the first smoke; revert to 1).
+- Task 5: ⚠️ "cannot verify" resolved by controller: type-check clean + full suite 1057 green at 05f3765. Live-Peak items (accepts `limit: 10`; inner `resCode` 404 on get_quotation; oldest-first order of list_quotation) are untestable here — parked for the manual smoke.
+- Task 5: minor (deferred): lib/peak/read.ts `total` falls back to `rows.length` when `totalQuotation` is null/garbled — `newestQuotations` would then present the OLDEST page as newest; throw PeakToolError when a full 50-row page comes back without a usable total
+- Task 5: minor (deferred): lib/peak/read.ts `newestQuotations` combines at most two pages (n > 100 silently capped; planned callers use 5 and 20) — clamp or document
+- Task 5: minor (deferred): lib/peak/read.ts `toWireDate` accepts impossible dates (`2026-13-45`) and its RangeError is undocumented on `PeakReader`
+- Task 5: minor (deferred): lib/peak/read.ts error message embeds the first 10 chars of Peak's `resCode` (untrusted text) — use a fixed message or digits only
+- Task 5: minor (deferred): lib/peak/read.ts `getQuotation('')` could match a code-less entry — add `if (!want) return null`
+- Task 5: complete (commits 3750937..05f3765, review clean after 1 fix round)
