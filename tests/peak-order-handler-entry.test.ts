@@ -9,7 +9,7 @@ import { resolveOrderCommand } from '@/lib/peak-order/resolve';
 import { firstLine, planUnits } from '@/lib/peak-order/mapper';
 import { TEXT, choicesCard, modeCard, statusCard, unitCard, whoCard } from '@/lib/peak-order/flex';
 import { DRAFT_TTL_MS, handlePeakOrderText, startFromQuotation } from '@/lib/peak-order/handler';
-import { CLAIM_TTL_MS, fakeClock, fakeDb, fakeDeps, fakePeak, textMsg, type FakeLink } from './helpers/peak-order-fakes';
+import { CLAIM_TTL_MS, fakeClock, fakeDb, fakeDeps, fakePeak, textMsg, type FakeLink, type FakeOrder } from './helpers/peak-order-fakes';
 
 const CUSTOMER = 'ไทยฟูดส์ อาหารสัตว์';
 const CONTACTS = { C001: CUSTOMER };
@@ -35,7 +35,7 @@ const Q3 = quot('QO-202611000003', [
 
 const STAFF_SEED = { 'U-gift': 'กิ๊ฟ' };
 
-function setup(quotations: PeakQuotation[], seed: { orders?: Record<number, { name: string; status: string }>; links?: FakeLink[]; staff?: Record<string, string> } = {}) {
+function setup(quotations: PeakQuotation[], seed: { orders?: Record<number, FakeOrder>; links?: FakeLink[]; staff?: Record<string, string> } = {}) {
   const clock = fakeClock();
   return fakeDeps({}, { clock, quotations, contacts: CONTACTS, seed: { staff: STAFF_SEED, ...seed } });
 }

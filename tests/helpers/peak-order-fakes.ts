@@ -288,11 +288,11 @@ export function fakeDeps(
   const replies: unknown[] = [];
   const created: CreateOrderBody[] = [];
   const actors: OrderActor[] = [];
-  let nextOrderId = Math.max(9000, ...[...db.orders.keys()].map((k) => k + 1));
   let nextDraft = 0;
 
   const defaultCreate = async (body: CreateOrderBody): Promise<CreateOrderResult> => {
-    const orderId = nextOrderId++;
+    // From the CURRENT orders map on every call (orders added after setup count too).
+    const orderId = Math.max(9000, ...[...db.orders.keys()].map((k) => k + 1));
     const draft = body.status === 'draft';
     const marker = body.peak as { code?: unknown; lineKeys?: unknown } | undefined;
     db.orders.set(orderId, {
