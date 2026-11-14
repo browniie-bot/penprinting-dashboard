@@ -989,6 +989,33 @@ describe('handlePeakOrderPostback — pick / rest', () => {
     expect(last(f)).toEqual(unitCard(d));
   });
 
+  it('status card for a vanished (re-keyed) line → rest → split draft over every current line → an order is created; the gone key row is untouched', async () => {
+    const f = setup([Q3], { orders: { 7020: { name: 'เก่า', status: 'pending' } } });
+    const gone = { qoCode: Q3.code, lineKey: 'OLD-KEY', orderId: 7020, draftId: 'old', claimedAtMs: 0 };
+    f.db.links.push(structuredClone(gone));
+    await start(f, Q3.code);
+    expect(f.db.drafts.size).toBe(0);
+    expect(last(f)).toEqual(
+      statusCard({
+        qoCode: Q3.code,
+        customerName: CUSTOMER,
+        opened: [{ orderId: 7020, name: 'เก่า', isDraft: false }],
+        remaining: Q3.lines.map((l) => ({ name: firstLine(l.description) })),
+      }),
+    );
+    await tap(f, { a: 'rest', code: Q3.code });
+    const d = draft(f);
+    expect(d).toMatchObject({ mode: 'split', step: 'unit', unitIdx: 0 });
+    expect(d.units.map((u) => u.lineKeys)).toEqual([['L1'], ['L2'], ['L3']]);
+    await toConfirm(f);
+    await tap(f, okCreate());
+    expect(f.created).toHaveLength(1);
+    const orderId = Math.max(...f.db.orders.keys());
+    expect(f.db.links.find((l) => l.lineKey === 'L1')).toMatchObject({ orderId, draftId: 'd1' });
+    expect(f.db.links.find((l) => l.lineKey === 'OLD-KEY')).toEqual(gone);
+    expect(draft(f)).toMatchObject({ step: 'unit', unitIdx: 1 });
+  });
+
   it('pick an unknown code → not-found text, no draft', async () => {
     const f = setup();
     await tap(f, { a: 'pick', code: 'QO-000000000000' });

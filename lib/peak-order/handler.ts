@@ -125,8 +125,12 @@ export async function handlePeakOrderText(m: InboundMessage, deps: PeakOrderDeps
 /**
  * Start a draft for one quotation (also the entry for the `pick` / `rest`
  * postbacks). Lines with a live link to a line key that still exists in the
- * quotation are taken; link rows for keys no longer in the quotation are
- * ignored. Any taken line without `remainingOnly` → status card, no draft.
+ * quotation are taken; link rows for keys no longer in the quotation never
+ * block a current line. Without `remainingOnly`, a quotation that has any
+ * live link to an order — on a current line OR on a key that vanished from
+ * the quotation (lines re-keyed in Peak) — answers with the status card and
+ * starts no draft (spec §4.5: an opened quotation never starts a new draft);
+ * the card's "เปิดรายการที่เหลือ" (`rest`) opens the current free lines.
  */
 export async function startFromQuotation(
   m: InboundMessage,
@@ -154,7 +158,7 @@ export async function startFromQuotation(
   const free = s.free;
 
   // Already (partly) opened and not asked for the rest — or nothing left to open.
-  if ((s.liveHere.length > 0 && !opts.remainingOnly) || free.length === 0) {
+  if (((s.liveHere.length > 0 || s.liveGone.length > 0) && !opts.remainingOnly) || free.length === 0) {
     await deps.reply(m, statusFor(q, customerName, s));
     return;
   }
@@ -202,6 +206,11 @@ export async function startFromQuotation(
 interface LineState {
   /** Live links whose line key still exists in the quotation. */
   liveHere: LiveLink[];
+  /**
+   * Live links to an order (orderId set) whose line key is no longer in the
+   * quotation. An in-flight claim (orderId null) on such a key is ignored.
+   */
+  liveGone: LiveLink[];
   /** Current lines without a live link. */
   free: PeakQuotation['lines'];
 }
@@ -210,14 +219,15 @@ async function lineState(deps: PeakOrderDeps, q: PeakQuotation): Promise<LineSta
   const live = await deps.db.liveLinks(q.code);
   const currentKeys = new Set(q.lines.map((l) => l.key));
   const liveHere = live.filter((l) => currentKeys.has(l.lineKey));
+  const liveGone = live.filter((l) => !currentKeys.has(l.lineKey) && l.orderId !== null);
   const liveKeys = new Set(liveHere.map((l) => l.lineKey));
-  return { liveHere, free: q.lines.filter((l) => !liveKeys.has(l.key)) };
+  return { liveHere, liveGone, free: q.lines.filter((l) => !liveKeys.has(l.key)) };
 }
 
 function statusFor(q: PeakQuotation, customerName: string, s: LineState): Card {
   const opened: Array<{ orderId: number; name: string; isDraft: boolean }> = [];
   const seen = new Set<number>();
-  for (const l of s.liveHere) {
+  for (const l of [...s.liveHere, ...s.liveGone]) {
     // An in-flight claim (orderId null) makes its line "not free" but is not an opened order (R4).
     if (l.orderId === null || seen.has(l.orderId)) continue;
     seen.add(l.orderId);

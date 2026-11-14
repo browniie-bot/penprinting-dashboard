@@ -229,21 +229,60 @@ describe('handlePeakOrderText — already opened (status card)', () => {
 });
 
 describe('handlePeakOrderText — lines that are free again', () => {
-  it('link row for a line key no longer in the quotation → ignored, single draft starts (Review Focus 5)', async () => {
+  it('live order on a line key no longer in the quotation → status card (that order opened, every current line remaining), no draft (spec §4.5)', async () => {
     const f = setup([Q1], { orders: { 7005: { name: 'เก่า', status: 'pending' } } });
     f.db.links.push(link(Q1.code, 'GONE', 7005, f.clock.ms));
+    await handlePeakOrderText(textMsg('/order QO-202611000001'), f.deps);
+    expect(f.replies).toEqual([
+      statusCard({
+        qoCode: Q1.code,
+        customerName: CUSTOMER,
+        opened: [{ orderId: 7005, name: 'เก่า', isDraft: false }],
+        remaining: [{ name: firstLine(Q1.lines[0].description) }],
+      }),
+    ]);
+    expect(f.db.drafts.size).toBe(0);
+  });
+
+  it('unknown live link key on a 3-line quotation → status card with all 3 current lines remaining, no draft', async () => {
+    const f = setup([Q3], { orders: { 7006: { name: 'เก่า', status: 'pending' } } });
+    f.db.links.push(link(Q3.code, 'L9', 7006, f.clock.ms));
+    await handlePeakOrderText(textMsg('/order QO-202611000003'), f.deps);
+    expect(f.replies).toEqual([
+      statusCard({
+        qoCode: Q3.code,
+        customerName: CUSTOMER,
+        opened: [{ orderId: 7006, name: 'เก่า', isDraft: false }],
+        remaining: Q3.lines.map((l) => ({ name: firstLine(l.description) })),
+      }),
+    ]);
+    expect(f.db.drafts.size).toBe(0);
+  });
+
+  it('a gone-key order plus a live order on a current line → both listed once under opened', async () => {
+    const f = setup([Q3], { orders: { 7006: { name: 'เก่า', status: 'pending' }, 7007: { name: 'ปัจจุบัน', status: 'draft' } } });
+    f.db.links.push(link(Q3.code, 'L9', 7006, f.clock.ms), link(Q3.code, 'L8', 7006, f.clock.ms), link(Q3.code, 'L2', 7007, f.clock.ms));
+    await handlePeakOrderText(textMsg('/order QO-202611000003'), f.deps);
+    expect(f.replies).toEqual([
+      statusCard({
+        qoCode: Q3.code,
+        customerName: CUSTOMER,
+        opened: [
+          { orderId: 7007, name: 'ปัจจุบัน', isDraft: true },
+          { orderId: 7006, name: 'เก่า', isDraft: false },
+        ],
+        remaining: [{ name: firstLine(Q3.lines[0].description) }, { name: firstLine(Q3.lines[2].description) }],
+      }),
+    ]);
+  });
+
+  it('an in-flight claim (orderId null) on a key no longer in the quotation is ignored entirely → draft starts', async () => {
+    const f = setup([Q1]);
+    f.db.links.push(link(Q1.code, 'GONE', null, f.clock.ms - 10_000, 'other'));
     await handlePeakOrderText(textMsg('/order QO-202611000001'), f.deps);
     const d = onlyDraft(f.db.drafts);
     expect(d).toMatchObject({ mode: 'single', step: 'unit' });
     expect(f.replies).toEqual([unitCard(d)]);
-  });
-
-  it('unknown link key on a 3-line quotation → still the mode step (all current lines free)', async () => {
-    const f = setup([Q3], { orders: { 7006: { name: 'เก่า', status: 'pending' } } });
-    f.db.links.push(link(Q3.code, 'L9', 7006, f.clock.ms));
-    await handlePeakOrderText(textMsg('/order QO-202611000003'), f.deps);
-    const d = onlyDraft(f.db.drafts);
-    expect(f.replies).toEqual([modeCard(d)]);
   });
 
   it('linked order cancelled → line is free → new draft', async () => {
