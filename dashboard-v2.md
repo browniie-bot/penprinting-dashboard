@@ -49,6 +49,9 @@
 | `components/dashboard-shell.tsx` | Layout wrapper (sidebar + bottom-nav + Toast/Confirm providers) |
 | `components/{toast,confirm}-provider.tsx` | Themed dialogs replacing native `alert/confirm/prompt` |
 | `components/nav-config.ts` | Sidebar + bottom-nav source of truth |
+| `lib/peak/*` | **(branch)** Peak MCP: `oauth.ts` (DCR/PKCE/exchange/refresh) · `crypto.ts` (AES-256-GCM) · `token-store.ts` (ตาราง `peak_oauth`, single-flight refresh) · `mcp-client.ts` (JSON-RPC, SSE/JSON, 404 re-init, 401 refresh) · `read.ts` (ทูลอ่าน 3 ตัว) |
+| `lib/peak-order/*` | **(branch)** `/order` ใน LINE: `command` · `resolve` · `mapper` · `postback` · `db` (ตาราง staff/drafts/links) · `flex` · `handler` · `deps` |
+| `lib/orders-create.ts` + `lib/order-constants.ts` | **(branch)** `createOrderFromForm` (ย้ายตรรกะสร้างออเดอร์ออกจาก `/api/orders/add` — พฤติกรรมเดิม) + `ORDERERS`/`QTY_UNITS` แหล่งเดียว |
 | `instrumentation*.ts` + `sentry.*.config.ts` | Sentry init (server / edge / client) |
 
 ### Google Sheet
@@ -105,8 +108,9 @@
 | `/quote-leads` | admin + sales | Lead table จาก AI quote sessions (status + claim) — Phase 1a |
 | `/quote-logs` | admin only | AI conversation log viewer — list ทุก session + filter + แท็บ 🚩 flags (2026-07-20) |
 | `/quote-logs/[id]` | admin only | Transcript บับเบิล + quote cards แทรกไทม์ไลน์ + tag 🚩 "AI ตอบผิด" ต่อข้อความ |
+| `/peak` | admin only | **(branch `feat/peak-order-line` — ยังไม่ merge/ไม่ deploy)** สถานะการเชื่อมต่อ Peak (เชื่อมแล้ว/ต่ออายุล่าสุด/error ล่าสุด/scope) + ปุ่ม "เชื่อมต่อ Peak" + "ทดสอบ" + รายการ mapping LINE user → ผู้สั่งงาน (ลบได้) + สถานะ flag `/order` |
 
-Middleware (`middleware.ts`) gates `/analytics /calendar /archive /board /orders /shipped /cancelled /quote-assistant /quote-leads /quote-logs` paths — defence-in-depth on top of per-page `verifySession()`. (API routes self-guard ด้วย `requireSession` — ไม่ใส่ใน matcher ตาม convention.)
+Middleware (`middleware.ts`) gates `/analytics /calendar /archive /board /orders /shipped /cancelled /quote-assistant /quote-leads /quote-logs /peak` paths — defence-in-depth on top of per-page `verifySession()`. (API routes self-guard ด้วย `requireSession` — ไม่ใส่ใน matcher ตาม convention.)
 
 ### API routes
 | Route | Method | Auth | Purpose |
@@ -138,6 +142,11 @@ Middleware (`middleware.ts`) gates `/analytics /calendar /archive /board /orders
 | `/api/ai-quote/line` | POST | LINE (HMAC) | **LINE OA webhook (1b-A + 1b-B)** — verify signature → ack 200 → `after()`: รูป→Haiku pre-filter→Thunder slip-verify→Flex card · `track <id>`→order Flex · **1b-B (2026-07-06):** `ขอราคา`/`ตีราคา`/postback→เข้าโหมด AI · in-mode text→Sonnet 5 customer engine + escalation 4 triggers · นอกโหมด→hint (sub-flag). AI arms เปิดเมื่อ `AI_QUOTE_LINE_ENABLED=true` + `QUOTE_API_URL`/`QUOTE_API_TOKEN`/`ANTHROPIC_API_KEY` ครบ — ขาดอันใด = 1b-A behavior เป๊ะ. env 1b-A เดิม (`LINE_CHANNEL_SECRET`/`LINE_CHANNEL_TOKEN`/`THUNDER_API_KEY`) + ใหม่ `LINE_STAFF_GROUP_ID` (escalation push) |
 | `/api/admin/slip-metrics` | GET | admin | Per-day rollup ของ `slip_checks` (images / thunder_calls=quota / filtered_out / slip_ok / duplicates / mismatches), Bangkok-day, 30 วัน |
 | `/api/admin/db-migrate` | GET | admin | Idempotent schema runner (`CREATE … IF NOT EXISTS` + counts) — รันหลัง deploy ที่เพิ่ม table/index ใหม่ |
+| `/api/admin/peak/connect` | GET | admin | **(branch — ยังไม่ merge)** เริ่ม OAuth กับ Peak MCP: เช็ค `PEAK_TOKEN_ENC_KEY` ก่อน → ลงทะเบียน client (DCR, ครั้งแรก) → PKCE + state ใน cookie `pp_peak_oauth` → redirect ไป Peak (scope `mcp:read` เท่านั้น) |
+| `/api/admin/peak/callback` | GET | admin | redirect URI `https://dashboard.penprinting.co/api/admin/peak/callback` — ตรวจ state/cookie → แลก code → เข้ารหัสเก็บ token → กลับ `/peak` (error ทุกแบบ → `/peak?error=…` ไม่ 500 · cookie ถูกล้างเสมอ) |
+| `/api/admin/peak/test` | POST | admin | ปุ่ม "ทดสอบ": อ่านใบเสนอราคาล่าสุด 1 ใบ (ย้อน 30 วัน) → `{ok, latestCode, ms}` — กรณีล้มมีแค่ชื่อ error class |
+| `/api/admin/peak/staff` | POST | admin | ลบ mapping LINE user → ผู้สั่งงาน `{lineUserId}` (คนนั้นเลือกชื่อใหม่ตอน `/order` ครั้งถัดไป) |
+| `/api/cron/peak-keepalive` | GET | `CRON_SECRET` (Bearer) | **(branch)** Vercel Cron วันละครั้ง — บังคับ refresh token + อ่าน 1 ครั้ง + บันทึกสุขภาพ (ไม่พึ่งอายุ refresh token ตอนไม่ได้ใช้ ซึ่งยังไม่ทราบ); ล้ม → push แจ้งกลุ่มแรกใน `PEAK_ORDER_GROUP_IDS` **ไม่เกินวันละครั้ง**; ข้ามเงียบถ้า `PEAK_ORDER_ENABLED` ไม่ใช่ `true` หรือยังไม่เชื่อมต่อ · `maxDuration = 60` |
 
 ---
 
@@ -363,6 +372,13 @@ Pages NOT in the action's path list keep their warm 60s ISR cache → instant na
 ## 10. Version History
 
 > WP version history (v5.0 → v5.11) อยู่ใน [`monitoring.md` §10](../production-monitoring/monitoring.md). entries below are v2-specific milestones.
+
+### 🧾 `/order` — เปิดใบสั่งงานจากใบเสนอราคา Peak ผ่านกลุ่ม LINE ทีม (เฟส 1) — ☁️ **สร้างบน branch `feat/peak-order-line` หลัง flag · ยังไม่ merge · ยังไม่ deploy · ยังไม่ migrate · flag ปิด** (2026-11-14, draft PR [#29](https://github.com/witsarutnook/penprinting-dashboard/pull/29), tests 950→1444 บน branch)
+> ⚠️ **สถานะตอนเขียน**: โค้ดอยู่บน branch เท่านั้น — `main`/production ไม่ถูกแตะ; ตาราง 4 ตัวยังไม่ถูกสร้าง (ยังไม่รัน `/api/admin/db-migrate`); ยังไม่มี env ใด ๆ ใน Vercel; `PEAK_ORDER_ENABLED` ปิด → `/order` **ยังไม่ใช้งานได้** ทุกการเปลี่ยนสถานะ (merge, migrate, env, เปิด flag) เป็นของคุณนุ๊ก — ลำดับใน NEXT-SESSION 2026-11-14 ☁️
+**ทำไม**: ทุกงานมีใบเสนอราคาใน Peak ก่อนเปิดใบสั่งงานเสมอ แต่ต้องพิมพ์ชื่อลูกค้า/ชื่องาน/จำนวน/รายละเอียดซ้ำในแดชบอร์ด. Peak เปิด MCP (ส.ค. 2026) และ probe จริงพิสูจน์แล้วว่าเซิร์ฟเวอร์ Vercel เรียกเองได้ ไม่ต้องเปิดคอม. **ทำ**: ทีม (นุ๊ก/กิ๊ฟ/เจี๊ยบ) พิมพ์ `/order …` ในกลุ่มพนักงานที่ allow-list → น้อง PP ดึงใบเสนอราคา+ลูกค้าจาก Peak → การ์ด Flex ปุ่มทีละขั้น (หน่วย → กราฟฟิก → ส่งต่อพิมพ์ → วันส่ง → สรุป) → **✅ สร้างงาน** (order+job ขึ้น /board รูปทรงเดียวกับฟอร์ม) หรือ **📝 บันทึกเป็นใบร่างในแดชบอร์ด** (แท็บ "ร่าง" ของ `/orders`) — **ไม่มี LLM** · Peak ใช้ทูลอ่านอย่างเดียว 3 ตัว (`get_quotation`, `list_quotation`, `search_contacts`) scope `mcp:read` = 0 เครดิต · ใบหลายรายการ รวม/แยก (+ข้ามรายการ/เหมือนใบก่อน) · ใบเสนอราคา 1 บรรทัดผูกกับใบสั่งงานที่ยังไม่ยกเลิกได้ใบเดียว.
+**สถาปัตยกรรม**: `lib/orders-create.ts` (`createOrderFromForm` ย้ายออกจาก `/api/orders/add` — เทสต์ characterization 15 เคสตรึงพฤติกรรมเดิมก่อน) · `lib/peak/*` (OAuth 2.1 DCR+PKCE · token เข้ารหัส AES-256-GCM ในตาราง `peak_oauth` · refresh token rotate ⇒ **DB single-flight + persist-before-use** = PATTERNS §12.1 · MCP client ขั้นต่ำ: JSON/SSE, 404 → initialize ใหม่, 401 → refresh 1 ครั้ง · ชื่อทูลเป็น union ปิดเฉพาะ 3 ตัวอ่าน) · `lib/peak-order/*` (parser · resolver · mapper · Flex · state machine; **gate ต่อ (unit, step) + claim-first** = PATTERNS §12.2) · `lib/ai-quote/webhook-router.ts` เพิ่ม route `peak-order`/`peak-order-postback` **ก่อน** บรรทัด ignore กลุ่ม — เข้าได้เฉพาะ flag เปิด + `groupId` ใน allow-list (ไม่ผ่าน = พฤติกรรมเดิมทุกประการ) · `maxDuration` ของ `/api/ai-quote/line` ยัง **60** (หน้าต่าง stale 2 นาทีของ claim ขึ้นกับตัวเลขนี้ — อย่าเพิ่ม).
+**Routes ใหม่**: `/peak` (admin) · `/api/admin/peak/{connect,callback,test,staff}` (admin) · `/api/cron/peak-keepalive` (`CRON_SECRET`) — ตาราง §3. **Cron**: `vercel.json` เพิ่ม `/api/cron/peak-keepalive` schedule `30 0 * * *` (UTC = 07:30 เวลาไทย, วันละครั้ง; morning-report เดิม `0 1 * * *`). **Env ใหม่ 3 ตัว** (ยังไม่ได้ตั้ง): `PEAK_ORDER_ENABLED` · `PEAK_ORDER_GROUP_IDS` · `PEAK_TOKEN_ENC_KEY` (Sensitive, base64 ของ 32 random bytes) — ตาราง §11. **ตาราง Postgres ใหม่ 4 ตัว** (DDL อยู่ใน `/api/admin/db-migrate` — ยังไม่รัน): `peak_oauth` (client + token เข้ารหัส + lease + health) · `peak_order_staff` (LINE userId → ผู้สั่งงาน) · `peak_order_drafts` (ร่างใน LINE ต่อแถว + ขั้นปัจจุบัน) · `peak_order_links` (PK `(qo_code, line_key)` = ตัวกันสร้างซ้ำ). `middleware.ts` matcher + `components/nav-config.ts` เพิ่ม `/peak` (admin only).
+**กระบวนการ**: subagent-driven 15 งาน (implementer + reviewer อิสระต่องาน; Task 3/10/12/13 ใช้ opus) · รายงาน/ruling/minor ที่ defer/ของที่ parked ทั้งหมดอยู่ใน ledger [`docs/superpowers/plans/2026-11-14-peak-order-from-line.ledger.md`](docs/superpowers/plans/2026-11-14-peak-order-from-line.ledger.md) · spec [`docs/superpowers/specs/2026-11-14-peak-order-from-line-design.md`](docs/superpowers/specs/2026-11-14-peak-order-from-line-design.md) · plan `docs/superpowers/plans/2026-11-14-peak-order-from-line.md`. **ยังไม่ได้พิสูจน์กับของจริง** (ไม่มี DB/Peak/LINE ใน session): SQL ทุกตัวและ DDL ยังไม่เคยรันบน Postgres จริง · พฤติกรรมจริงของ mcp.peakaccount.com · LINE ยอมรับ Flex ทุกการ์ดไหม — ทั้งหมดรอ smoke ตาม checklist ใน NEXT-SESSION. Whole-branch review + parked items: ดู NEXT-SESSION entry (controller เติมหลัง review). **Docs ที่อัปเดต**: `design-ai-quoting.md` §7 (คำสั่ง `/order`) + §10 (ต้นทุน PEAK → ระบบเครดิต ส.ค. 2026 + Peak MCP แทน Open API) · `PATTERNS.md` §12 · `CLAUDE.md` · `NEXT-SESSION.md`.
 
 ### 🤖 น้อง PP prompt v4 — "ถามราคาตามจำนวน ≠ ขอส่วนลด" อยู่ในโหมด AI ต่อ · eval รอบ 3 baseline 131/164 → v4 163/164 (99.4%) paired +19.5 จุด, ship (2026-11-09, tests 945→950)
 **ทำไม**: แชต LINE จริง — ลูกค้าได้ราคาใบปลิว 1,000 ใบแล้วถาม "พิมพ์ มากกว่า 1000 ใบ ลดราคามั้ยคะ" → v3 อ่าน "ลดราคา" เป็นขอส่วนลด → วลี "ส่งต่อทีมงาน" → router (`detectCustomerEscalation` → `exitLineMode`) ปิดโหมด AI → "ถ้า พิมพ์ 2000 ใบราคาเท่าไหร่คะ" ต้องให้คนตอบ ทั้งที่ `compute_quote` คิดตามจำนวนได้อยู่แล้ว. **นโยบาย (คุณนุ๊ก approve)**: แยก intent — *คำถามเรื่องจำนวน* ("สั่งเยอะขึ้นถูกลงไหม" / "ถ้า 2000 ใบ ลดได้มั้ย") ไม่ส่งต่อ: มีจำนวนใหม่ → เรียก `compute_quote` สเปกเดิม · ไม่มี → ประโยคคงที่ "ราคาต่อใบลดลงตามจำนวนค่ะ ต้องการประมาณกี่ใบคะ น้อง PP ตีราคาให้ได้เลย (ถ้าต้องการส่วนลดพิเศษ พิมพ์ "คุยกับทีมงาน" ได้เลยค่ะ)" (หนังสือ/สมุด "เล่ม" · ปฏิทิน "ชุด"; ห้ามมีวลีส่งต่อ) · *ขอลดจากราคาที่แจ้งแล้วโดยไม่มีจำนวนใหม่* + **นามบัตรทุกแบบ** (ราคาต่อกล่องคงที่ ห้ามถามจำนวน) ยังส่งต่อ ห้ามให้ส่วนลดเอง.
@@ -1521,6 +1537,9 @@ Backwards-compat fallbacks should be in v2 routes when needed (e.g. Phase 2 rout
 | `APPS_SCRIPT_TOKEN` | yes | service token (5y, signed by Apps Script `API_SECRET`) |
 | `DASHBOARD_AUTH_SECRET` | yes | random ≥32 chars (cookie HMAC) |
 | `DASHBOARD_AUTH_USERS` | yes | JSON map password → {role, user} |
+| `PEAK_ORDER_ENABLED` | `/order` (branch) | `true` = เปิดคำสั่ง `/order` ในกลุ่ม LINE · **ยังไม่ตั้ง = ปิด** — ขาด/ไม่ใช่ `true` = พฤติกรรมเดิมทุกประการ |
+| `PEAK_ORDER_GROUP_IDS` | `/order` (branch) | LINE group id ที่อนุญาต คั่น comma (ได้จากพิมพ์ `/groupid` ในกลุ่ม) · ว่าง = ปิด · id แรกใช้เป็นปลายทางแจ้งเตือนของ cron keep-alive |
+| `PEAK_TOKEN_ENC_KEY` | `/order` (branch) | key เข้ารหัส token Peak (AES-256-GCM) = **base64 ของ random 32 bytes** · ตั้งเป็น **Sensitive** · ขาด/ผิดรูป = ฟีเจอร์ปิดอย่างปลอดภัย (`/peak` แสดงแบนเนอร์ config) · เปลี่ยน key แล้ว token ที่เก็บไว้ถอดรหัสไม่ได้ → ต้องเชื่อมต่อ Peak ใหม่ |
 | `NEXT_PUBLIC_APP_VERSION` | optional | shown in sidebar footer + Sentry release tag |
 | `NEXT_PUBLIC_SENTRY_DSN` | optional | error tracking (disabled when missing) |
 | `SENTRY_ORG` | optional | source-map upload target |
