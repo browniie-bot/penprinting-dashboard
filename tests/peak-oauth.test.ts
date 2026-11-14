@@ -163,6 +163,16 @@ describe('error mapping', () => {
     expect(err.message).toContain('invalid_grant');
   });
 
+  it.each([429, 408])('HTTP %i (rate-limit / timeout) -> PeakUnavailableError', async (status) => {
+    const f = fakeFetch(jsonRes(status, { error: 'slow_down' }));
+    const err = await refreshPeakTokens({ clientId: 'c', refreshToken: 'r' }, f).catch((e) => e);
+    expect(err).toBeInstanceOf(PeakUnavailableError);
+    expect(err).not.toBeInstanceOf(PeakAuthError);
+    expect(err.message).toContain(String(status));
+    const r = fakeFetch(jsonRes(status, {}));
+    await expect(registerPeakClient(r)).rejects.toBeInstanceOf(PeakUnavailableError);
+  });
+
   it('HTTP 500 (JSON or not) -> PeakUnavailableError', async () => {
     const f1 = fakeFetch(jsonRes(500, { error: 'x' }));
     await expect(

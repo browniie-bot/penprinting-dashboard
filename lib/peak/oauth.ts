@@ -50,7 +50,11 @@ async function post(
   } catch {
     json = null;
   }
-  if (res.status >= 500) throw new PeakUnavailableError(`Peak ${path} returned ${res.status}`);
+  // 429 (rate-limited) and 408 (request timeout) are transient: retry later,
+  // never "reconnect needed" (must not raise the daily auth alert).
+  if (res.status >= 500 || res.status === 429 || res.status === 408) {
+    throw new PeakUnavailableError(`Peak ${path} returned ${res.status}`);
+  }
   if (!res.ok) {
     const code = oauthCode(json);
     throw new PeakAuthError(`Peak ${path} rejected: ${res.status}${code ? ` ${code}` : ''}`);

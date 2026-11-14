@@ -526,6 +526,27 @@ export async function GET() {
     await sql`ALTER TABLE ai_quote_line_modes ADD COLUMN IF NOT EXISTS last_staff_reply_at TIMESTAMPTZ`;
     applied.push('ai_quote_line_modes.last_staff_reply_at column');
 
+    // /order from Peak (2026-11-14): single-row Peak OAuth connection store.
+    // Tokens are AES-256-GCM encrypted (lib/peak/crypto.ts, PEAK_TOKEN_ENC_KEY);
+    // refresh_lock_until = cross-instance single-flight refresh lease;
+    // last_alert_at = once-per-24h "connection broken" alert gate.
+    await sql`
+      CREATE TABLE IF NOT EXISTS peak_oauth (
+        id                 TEXT PRIMARY KEY,
+        client_id          TEXT NOT NULL,
+        access_token_enc   TEXT,
+        refresh_token_enc  TEXT,
+        access_expires_at  TIMESTAMPTZ,
+        scope              TEXT,
+        refresh_lock_until TIMESTAMPTZ,
+        last_ok_at         TIMESTAMPTZ,
+        last_error         TEXT,
+        last_error_at      TIMESTAMPTZ,
+        last_alert_at      TIMESTAMPTZ,
+        updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )`;
+    applied.push('CREATE TABLE peak_oauth');
+
     // Quick row counts for confirmation.
     const counts: Record<string, number> = {};
     for (const t of ['audit_log', 'jobs', 'orders', 'shipped', 'cancelled', 'templates', 'ai_quote_sessions', 'ai_quotes', 'ai_quote_turn_flags', 'slip_checks', 'customer_registrations', 'ai_quote_line_modes']) {
