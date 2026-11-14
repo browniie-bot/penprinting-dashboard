@@ -8,7 +8,7 @@ import { PeakToolError } from '@/lib/peak/mcp-client';
 import { PeakConfigError } from '@/lib/peak/crypto';
 import type { DraftRow, DraftStep, DraftUnit, LiveLink, PeakOrderDb } from '@/lib/peak-order/db';
 import { orderCommandArgs, parseOrderCommand } from '@/lib/peak-order/command';
-import { resolveOrderCommand } from '@/lib/peak-order/resolve';
+import { clipEcho, notFoundHint, resolveOrderCommand } from '@/lib/peak-order/resolve';
 import { addDaysISO, bangkokISODate, buildOrderBody, firstLine, planUnits } from '@/lib/peak-order/mapper';
 import { decodePostback, type OrderPostback } from '@/lib/peak-order/postback';
 import {
@@ -333,7 +333,7 @@ async function onPick(m: InboundMessage, deps: PeakOrderDeps, uid: string, code:
   try {
     q = await deps.peak.getQuotation(code);
     if (!q) {
-      await deps.reply(m, `ไม่พบใบเสนอราคา ${clipText(code, 40)}`);
+      await deps.reply(m, notFoundHint(`ไม่พบใบเสนอราคา ${clipEcho(code)}`));
       return;
     }
     customerName = (await deps.peak.getContactName(q.contactCode)) || q.contactCode;
@@ -562,8 +562,12 @@ async function finishUnit(
     { ...nextPos(g), units: patchUnit(g, { result }) },
   );
   const created = createdCard({ orderId: card.orderId, name: unit.name, pin: card.pin, isDraft: card.isDraft });
+  // An adopted order (written by an earlier, half-finished attempt) may lack its
+  // job — createOrderInPostgres is not transactional — so ask staff to check it.
+  const head: Array<Card | string> = result.kind === 'existing' ? [created, TEXT.adopted] : [created];
   // The order exists either way; a lost gate only means another tap moved the draft.
-  return n && n.step === 'unit' ? [created, unitCard(n)] : created;
+  if (n && n.step === 'unit') return [...head, unitCard(n)];
+  return head.length === 1 ? created : head;
 }
 
 /**

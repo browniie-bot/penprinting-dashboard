@@ -24,6 +24,23 @@ export const PEAK_CONCURRENCY = 3;
  * (maxDuration); DB work and the LINE reply need the rest.
  */
 export const RESOLVE_BUDGET_MS = 25_000;
+/** Appended to every not-found reply (spec §4.6: "ไม่เจอ + ตัวอย่างวิธีพิมพ์"). */
+export const NOT_FOUND_EXAMPLE = 'ตัวอย่าง: /order QO-20260900097 หรือ /order ชื่อลูกค้า';
+/** Echoed user text (searched words / code) is clipped to this many code points. */
+export const ECHO_MAX = 80;
+
+/** One line, at most ECHO_MAX code points (… on cut). */
+export function clipEcho(s: string): string {
+  const one = String(s).replace(/\s+/g, ' ').trim();
+  const cps = Array.from(one);
+  return cps.length <= ECHO_MAX ? one : cps.slice(0, ECHO_MAX - 1).join('') + '…';
+}
+
+/** `head` + the shared usage example, as a not-found hint. */
+export function notFoundHint(head: string): string {
+  return `${head}\n${NOT_FOUND_EXAMPLE}`;
+}
+
 const SHOWN = 5;
 const FILTER_POOL = 20;
 
@@ -103,7 +120,7 @@ export async function resolveOrderCommand(
 
   async function asQuotation(code: string): Promise<Resolved> {
     const quotation = await getQ(code);
-    if (!quotation) return { kind: 'not-found', hint: `ไม่พบใบเสนอราคา ${code}` };
+    if (!quotation) return { kind: 'not-found', hint: notFoundHint(`ไม่พบใบเสนอราคา ${clipEcho(code)}`) };
     return { kind: 'quotation', quotation, customerName: await nameOf(quotation.contactCode) };
   }
 
@@ -128,7 +145,7 @@ export async function resolveOrderCommand(
   async function byDigits(digits: string): Promise<Resolved> {
     const first = await peak.listQuotations({ searchText: digits, page: 1 });
     if (first.total <= 0 || first.rows.length === 0) {
-      return { kind: 'not-found', hint: `ไม่พบใบเสนอราคาที่ตรงกับ "${digits}"` };
+      return { kind: 'not-found', hint: notFoundHint(`ไม่พบใบเสนอราคาที่ตรงกับ "${clipEcho(digits)}"`) };
     }
     if (first.total === 1) return asQuotation(first.rows[0].code);
     const rows = await peak.newestQuotations({ searchText: digits }, SHOWN);
@@ -138,7 +155,7 @@ export async function resolveOrderCommand(
   switch (cmd.kind) {
     case 'latest': {
       const rows = await peak.newestQuotations({ dateStart: addDaysISO(deps.todayISO, -30) }, SHOWN);
-      if (rows.length === 0) return { kind: 'not-found', hint: 'ไม่พบใบเสนอราคาใน 30 วันที่ผ่านมา' };
+      if (rows.length === 0) return { kind: 'not-found', hint: notFoundHint('ไม่พบใบเสนอราคาใน 30 วันที่ผ่านมา') };
       return asChoices(rows, `${SHOWN} ใบล่าสุด`);
     }
     case 'code': {
@@ -151,7 +168,7 @@ export async function resolveOrderCommand(
       return byDigits(cmd.digits);
     case 'text': {
       const words = cmd.words;
-      if (words.length === 0) return { kind: 'not-found', hint: 'กรุณาระบุคำค้นหา' };
+      if (words.length === 0) return { kind: 'not-found', hint: notFoundHint('กรุณาระบุคำค้นหา') };
       let k = words.length;
       let first: { rows: PeakQuotationRow[]; total: number } | null = null;
       let query = '';
@@ -163,7 +180,7 @@ export async function resolveOrderCommand(
           break;
         }
       }
-      if (!first) return { kind: 'not-found', hint: `ไม่พบใบเสนอราคาที่ตรงกับ "${words.join(' ')}"` };
+      if (!first) return { kind: 'not-found', hint: notFoundHint(`ไม่พบใบเสนอราคาที่ตรงกับ "${clipEcho(words.join(' '))}"`) };
       const filter = words.slice(k).map(norm).filter((w) => w !== '');
       if (filter.length === 0) {
         if (first.total === 1) return asQuotation(first.rows[0].code);

@@ -169,6 +169,34 @@ describe('statusCard', () => {
   });
 });
 
+describe('statusCard title says what is true', () => {
+  const title = (c: Card) => ((c.flex as { contents: { body: { contents: Obj[] } } }).contents.body.contents[0].text as string);
+  const one = [{ orderId: 101, name: 'ไวนิล', isDraft: false }];
+  it('something opened → "เปิดงานแล้ว"', () => {
+    for (const remaining of [[], [{ name: 'ค่าส่ง' }]]) {
+      const c = statusCard({ qoCode: 'QO-1', customerName: 'x', opened: one, remaining });
+      invariants(c);
+      expect(title(c)).toBe('QO-1 · เปิดงานแล้ว');
+      expect(c.text.split('\n')[0]).toBe('QO-1 · เปิดงานแล้ว');
+    }
+  });
+  it('nothing opened, lines remaining → "ยังไม่ได้เปิดงาน" (+ rest button)', () => {
+    const c = statusCard({ qoCode: 'QO-1', customerName: 'x', opened: [], remaining: [{ name: 'ค่าส่ง' }] });
+    invariants(c);
+    expect(title(c)).toBe('QO-1 · ยังไม่ได้เปิดงาน');
+    expect(title(c)).not.toContain('เปิดงานแล้ว');
+    expect(labels(c)).toContain('เปิดรายการที่เหลือ');
+  });
+  it('nothing opened, nothing remaining (in-flight claim) → "มีคนกำลังเปิดงานใบนี้อยู่" + try-again line', () => {
+    const c = statusCard({ qoCode: 'QO-1', customerName: 'x', opened: [], remaining: [] });
+    invariants(c);
+    expect(title(c)).toBe('QO-1 · มีคนกำลังเปิดงานใบนี้อยู่');
+    expect(c.text).toContain('ลองใหม่อีกครั้งในอีกสักครู่');
+    expect(c.text).not.toContain('เปิดงานแล้ว');
+    expect(actions(c)).toHaveLength(0);
+  });
+});
+
 describe('modeCard', () => {
   it('merged / split buttons (+ N) and cancel', () => {
     const d = mkDraft({ mode: null, units: [], step: 'mode', snapshot: { ...mkDraft().snapshot, quotation: { ...mkDraft().snapshot.quotation, lines: lines(4) } } });

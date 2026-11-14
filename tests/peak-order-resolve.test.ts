@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PeakQuotation, PeakQuotationRow, PeakReader } from '@/lib/peak/read';
 import { PeakUnavailableError } from '@/lib/peak/oauth';
-import { RESOLVE_BUDGET_MS, resolveOrderCommand } from '@/lib/peak-order/resolve';
+import { NOT_FOUND_EXAMPLE, RESOLVE_BUDGET_MS, resolveOrderCommand } from '@/lib/peak-order/resolve';
 
 const row = (n: number, contactCode = 'C1'): PeakQuotationRow => ({
   code: `QO-2026090${String(n).padStart(4, '0')}`,
@@ -295,6 +295,40 @@ describe('resolveOrderCommand', () => {
         }),
       ).rejects.toBeInstanceOf(PeakUnavailableError);
       expect(f.calls.length).toBe(1);
+    });
+  });
+
+  describe('not-found replies carry a usage example (spec §4.6) and clip echoed text', () => {
+    const d = () => ({ peak: fake().reader, openedCodes: opened(), todayISO: TODAY });
+    it.each([
+      ['latest, nothing in 30 days', { kind: 'latest' } as const],
+      ['code', { kind: 'code', code: 'QO-20269999999' } as const],
+      ['code without digits fallback', { kind: 'code', code: 'QO-' } as const],
+      ['digits', { kind: 'digits', digits: '900' } as const],
+      ['text', { kind: 'text', words: ['x', 'y'] } as const],
+      ['text without words', { kind: 'text', words: [] as string[] } as const],
+    ])('%s → hint ends with the shared example line', async (_n, cmd) => {
+      const r = await resolveOrderCommand(cmd as never, d());
+      if (r.kind !== 'not-found') throw new Error('expected not-found');
+      expect(r.hint.endsWith(`\n${NOT_FOUND_EXAMPLE}`)).toBe(true);
+      expect(r.hint.split('\n')[0].trim()).not.toBe('');
+    });
+    it('the example shows how to type a code and a customer name', () => {
+      expect(NOT_FOUND_EXAMPLE).toContain('/order QO-');
+      expect(NOT_FOUND_EXAMPLE).toContain('/order ชื่อลูกค้า');
+    });
+    it('echoed search words / digits are clipped to 80 characters', async () => {
+      const long = 'ก'.repeat(500);
+      const t = await resolveOrderCommand({ kind: 'text', words: [long] }, d());
+      if (t.kind !== 'not-found') throw new Error('expected not-found');
+      expect(t.hint).not.toContain(long);
+      expect(t.hint).toContain('ก'.repeat(79) + '…');
+      expect(t.hint).not.toContain('ก'.repeat(80));
+      const digits = '9'.repeat(500);
+      const g = await resolveOrderCommand({ kind: 'digits', digits }, d());
+      if (g.kind !== 'not-found') throw new Error('expected not-found');
+      expect(g.hint).toContain('9'.repeat(79) + '…');
+      expect(g.hint).not.toContain('9'.repeat(80));
     });
   });
 });

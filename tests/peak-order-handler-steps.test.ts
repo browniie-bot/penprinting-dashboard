@@ -21,6 +21,7 @@ import {
   type Card,
 } from '@/lib/peak-order/flex';
 import { handlePeakOrderPostback, handlePeakOrderText } from '@/lib/peak-order/handler';
+import { NOT_FOUND_EXAMPLE } from '@/lib/peak-order/resolve';
 import { CLAIM_TTL_MS, fakeClock, fakeDeps, textMsg, type FakeLink, type FakeOrder } from './helpers/peak-order-fakes';
 
 const CUSTOMER = 'ไทยฟูดส์ อาหารสัตว์';
@@ -805,8 +806,10 @@ describe('handlePeakOrderPostback — never two orders', () => {
     expect(d.step).toBe('done');
     expect(d.units[0].result).toEqual({ kind: 'existing', orderId: 9000 });
     expect(f.db.links.map((l) => [l.lineKey, l.orderId])).toEqual([['L1', 9000]]);
-    const card = last(f) as Card;
+    const [card, note] = last(f) as [Card, string];
+    expect(last(f)).toHaveLength(2);
     expect(card).toEqual(createdCard({ orderId: 9000, name: d.units[0].name, pin: '', isDraft: false }));
+    expect(note).toBe(TEXT.adopted);
     expect(card.text).not.toContain('PIN');
     expect(card.text.trim()).not.toBe('');
     vi.restoreAllMocks();
@@ -821,7 +824,22 @@ describe('handlePeakOrderPostback — never two orders', () => {
     expect(f.created).toEqual([]);
     expect(draft(f).units[0].result).toEqual({ kind: 'existing', orderId: 9100 });
     expect(f.db.links.map((l) => [l.lineKey, l.orderId])).toEqual([['L1', 9100]]);
-    expect(last(f)).toEqual(createdCard({ orderId: 9100, name: 'ไวนิลขนาด 1x2 เมตร', pin: '', isDraft: true }));
+    expect(last(f)).toEqual([createdCard({ orderId: 9100, name: 'ไวนิลขนาด 1x2 เมตร', pin: '', isDraft: true }), TEXT.adopted]);
+  });
+
+  it('split draft with units left: an adopted unit replies [createdCard, TEXT.adopted, next unitCard]', async () => {
+    const f = setup([Q3], { orders: { 9200: { name: 'ไวนิล 2x3 เมตร พับขอบ', status: 'pending', peak: { code: Q3.code, lineKeys: ['L1'] } } } });
+    await start(f, Q3.code);
+    await tap(f, { a: 'mode', draft: 'd1', v: 'split' });
+    await toConfirm(f);
+    await tap(f, okCreate());
+    expect(f.created).toEqual([]);
+    const d = draft(f);
+    expect(d).toMatchObject({ step: 'unit', unitIdx: 1 });
+    expect(d.units[0].result).toEqual({ kind: 'existing', orderId: 9200 });
+    const r = last(f) as unknown[];
+    expect(r).toEqual([createdCard({ orderId: 9200, name: d.units[0].name, pin: '', isDraft: false }), TEXT.adopted, unitCard(d)]);
+    expect(r.length).toBeLessThanOrEqual(5);
   });
 
   it('linked order later cancelled → a new /order starts a fresh draft and claimLines takes the line over', async () => {
@@ -862,7 +880,7 @@ describe('handlePeakOrderPostback — crash recovery', () => {
     expect(d.step).toBe('done');
     expect(d.units[0].result).toEqual({ kind: 'existing', orderId: 9050 });
     expect(f.db.links.map((l) => [l.lineKey, l.orderId])).toEqual([['L1', 9050]]);
-    expect(last(f)).toEqual(createdCard({ orderId: 9050, name: d.units[0].name, pin: '', isDraft: false }));
+    expect(last(f)).toEqual([createdCard({ orderId: 9050, name: d.units[0].name, pin: '', isDraft: false }), TEXT.adopted]);
   });
 
   it('stuck at creating 3 min, no order → claim released, back to confirm + summaryCard; then ok creates once', async () => {
@@ -1019,8 +1037,18 @@ describe('handlePeakOrderPostback — pick / rest', () => {
   it('pick an unknown code → not-found text, no draft', async () => {
     const f = setup();
     await tap(f, { a: 'pick', code: 'QO-000000000000' });
-    expect(last(f)).toBe('ไม่พบใบเสนอราคา QO-000000000000');
+    expect(last(f)).toBe(`ไม่พบใบเสนอราคา QO-000000000000\n${NOT_FOUND_EXAMPLE}`);
     expect(f.db.drafts.size).toBe(0);
+  });
+
+  it('pick a 200-character code (postback data max 300) → not-found text with the code clipped to 80 characters', async () => {
+    const f = setup();
+    const code = 'QO-' + '7'.repeat(197);
+    await tap(f, { a: 'pick', code });
+    const r = last(f) as string;
+    expect(r).not.toContain(code);
+    expect(r.split('\n')[0]).toBe(`ไม่พบใบเสนอราคา ${code.slice(0, 79)}…`);
+    expect(r.endsWith(NOT_FOUND_EXAMPLE)).toBe(true);
   });
 
   it('pick from an unmapped user → whoCard(""), no Peak call', async () => {

@@ -5,7 +5,7 @@ import { PeakNotConnectedError } from '@/lib/peak/token-store';
 import { PeakToolError } from '@/lib/peak/mcp-client';
 import { PeakConfigError } from '@/lib/peak/crypto';
 import { parseOrderCommand } from '@/lib/peak-order/command';
-import { resolveOrderCommand } from '@/lib/peak-order/resolve';
+import { NOT_FOUND_EXAMPLE, resolveOrderCommand } from '@/lib/peak-order/resolve';
 import { firstLine, planUnits } from '@/lib/peak-order/mapper';
 import { TEXT, choicesCard, modeCard, statusCard, unitCard, whoCard } from '@/lib/peak-order/flex';
 import { DRAFT_TTL_MS, handlePeakOrderText, startFromQuotation } from '@/lib/peak-order/handler';
@@ -354,6 +354,23 @@ describe('handlePeakOrderText — resolver outcomes', () => {
     await handlePeakOrderText(textMsg('/order'), f.deps);
     const first = f.peak.calls.find((c) => c.m === 'newestQuotations');
     expect(first?.a[0]).toEqual({ dateStart: '2026-10-16' }); // 2026-11-15 − 30 days
+  });
+});
+
+describe('handlePeakOrderText — not found', () => {
+  it('a 500-character search term is clipped in the reply, and the reply ends with the usage example', async () => {
+    const f = setup([Q1]);
+    const term = 'ข'.repeat(500);
+    await handlePeakOrderText(textMsg(`/order ${term}`), f.deps);
+    expect(f.replies).toHaveLength(1);
+    const r = f.replies[0] as string;
+    expect(typeof r).toBe('string');
+    expect(r).not.toContain(term);
+    expect(r).toContain('ข'.repeat(79) + '…');
+    expect(r).not.toContain('ข'.repeat(80));
+    expect(r.endsWith(NOT_FOUND_EXAMPLE)).toBe(true);
+    expect(Array.from(r).length).toBeLessThan(250);
+    expect(f.db.drafts.size).toBe(0);
   });
 });
 

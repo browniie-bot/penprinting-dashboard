@@ -294,7 +294,16 @@ export function statusCard(p0: {
     const rest = pbButton('เปิดรายการที่เหลือ', { a: 'rest', code: p0.qoCode }, 'primary');
     if (rest) footer.unshift(rest);
   }
-  return build(`${txt(p0.qoCode, 40)} · เปิดงานแล้ว`, p, footer, remaining.length ? TAIL : '');
+  // The title says what is true: something opened / nothing opened yet / only
+  // an in-flight claim of someone else (nothing opened, nothing free).
+  let state: string;
+  if (opened.length) state = 'เปิดงานแล้ว';
+  else if (remaining.length) state = 'ยังไม่ได้เปิดงาน';
+  else {
+    state = 'มีคนกำลังเปิดงานใบนี้อยู่';
+    add(p, 'ลองใหม่อีกครั้งในอีกสักครู่', { color: C.muted, margin: 'md' });
+  }
+  return build(`${txt(p0.qoCode, 40)} · ${state}`, p, footer, remaining.length ? TAIL : '');
 }
 
 export function modeCard(d: DraftRow): Card {
@@ -490,5 +499,7 @@ export const TEXT = {
   noLines: 'ใบเสนอราคานี้ไม่มีรายการสินค้า จึงเปิดงานไม่ได้ค่ะ',
   badDate: 'วันที่ที่เลือกใช้ไม่ได้ค่ะ (ต้องเป็นวันนี้หรือหลังจากนี้) เลือกวันกำหนดส่งใหม่อีกครั้งนะคะ',
   whoDeclined: 'รับทราบค่ะ ยังไม่ได้ทำอะไรต่อ ถ้าจะใช้ /order ให้เลือกชื่อของตัวเองนะคะ',
+  adopted:
+    'ใบสั่งงานนี้ถูกสร้างไว้แล้วจากการกดครั้งก่อนค่ะ รบกวนเปิดดูในแดชบอร์ด และเช็คว่างานขึ้นบอร์ดแล้วนะคะ',
   unexpected: 'ขออภัยค่ะ ระบบขัดข้องชั่วคราว ลองใหม่อีกครั้งในอีกสักครู่นะคะ ถ้ายังเป็นอยู่ แจ้งแอดมินด้วยนะคะ',
 };
