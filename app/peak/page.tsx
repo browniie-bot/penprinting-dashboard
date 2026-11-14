@@ -67,7 +67,8 @@ export default async function PeakPage({
     }
   }
 
-  const errorText = sp.error ? ERROR_TEXT[sp.error] : undefined;
+  // Own keys only: `?error=__proto__` must not read Object.prototype.
+  const errorText = typeof sp.error === 'string' && Object.hasOwn(ERROR_TEXT, sp.error) ? ERROR_TEXT[sp.error] : undefined;
 
   return (
     <DashboardShell user={session.user} role={session.role}>

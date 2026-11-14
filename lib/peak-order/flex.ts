@@ -115,7 +115,7 @@ function compact<T>(xs: Array<T | null | undefined>): T[] {
   return xs.filter((x): x is T => x !== null && x !== undefined);
 }
 
-/** Rows of up to `per` buttons (fillers keep the grid even). */
+/** Rows of up to `per` buttons; the last row may be shorter (no filler/padding is added). */
 function grid(buttons: Obj[], per: number): Obj[] {
   const rows: Obj[] = [];
   for (let i = 0; i < buttons.length; i += per) {

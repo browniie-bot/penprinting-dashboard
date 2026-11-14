@@ -40,6 +40,11 @@ type ReplyItem = Card | string;
  * Flex-or-text reply. All messages go out in ONE adapter.reply call (LINE allows
  * ≤ 5 per reply). If the Flex send throws, the whole list is resent as plain text
  * in one call; if that fails too, the error propagates. Logs the error class only.
+ *
+ * The real path for a refused Flex: the LINE adapter's reply() swallows a failed
+ * reply-token send and pushes the SAME Flex to the group; only when that push is
+ * refused too does reply() throw — and only then does this wrapper resend the
+ * cards as text, again through adapter.reply (reply token first, then push).
  */
 export function makePeakReply(adapter: Pick<ChannelAdapter, 'reply'>) {
   return async (m: InboundMessage, card: ReplyItem | ReplyItem[]): Promise<void> => {

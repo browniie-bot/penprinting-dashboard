@@ -76,7 +76,7 @@ npm run build            # before push
 - `DASHBOARD_AUTH_SECRET` — random ≥32 chars (cookie HMAC)
 - `DASHBOARD_AUTH_USERS` — JSON map password → {role, user}
 - `NEXT_PUBLIC_SENTRY_DSN` (optional) — error tracking
-- `PEAK_ORDER_ENABLED` — `true` เปิด `/order` ในกลุ่ม LINE (ยังไม่ตั้ง = ปิด)
+- `PEAK_ORDER_ENABLED` — `true` เปิด `/order` ในกลุ่ม LINE (ยังไม่ตั้ง = ปิด) — ต้องครบทั้ง 3 ค่า (`PEAK_ORDER_ENABLED=true` + `PEAK_ORDER_GROUP_IDS` + `PEAK_TOKEN_ENC_KEY`) `/order` จึงเปิด; ตัวเดียวไม่พอ
 - `PEAK_ORDER_GROUP_IDS` — LINE group id ที่อนุญาต คั่น comma
 - `PEAK_TOKEN_ENC_KEY` — base64 ของ 32 random bytes (**Sensitive**) เข้ารหัส token Peak
 
