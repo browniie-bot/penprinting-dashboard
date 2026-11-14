@@ -65,6 +65,18 @@ describe('getQuotation', () => {
       code: 'QO-1', status: '', issuedDate: '', contactCode: '', netAmount: null, lines: [],
     });
   });
+  it('returns null when the only quotation has a different code (no fallback)', async () => {
+    const { reader } = fake(() => fx('get-quotation.json'));
+    expect(await reader.getQuotation('QO-20260900098')).toBeNull();
+    const b = fake(() => ({ PeakQuotations: { quotations: [{ code: 'QO-2' }, {}], resCode: '200' } }));
+    expect(await b.reader.getQuotation('QO-1')).toBeNull();
+  });
+  it('picks the matching entry even when it is not first (trim/case-insensitive)', async () => {
+    const { reader } = fake(() => ({
+      PeakQuotations: { quotations: [{ code: 'QO-2', status: 'Draft' }, { code: 'QO-1', status: 'Approve' }], resCode: '200' },
+    }));
+    expect((await reader.getQuotation(' qo-1 '))!.status).toBe('Approve');
+  });
   it.each([
     ['null', null],
     ['string', 'oops'],
@@ -72,7 +84,7 @@ describe('getQuotation', () => {
     ['non-array quotations', { PeakQuotations: { quotations: {}, resCode: '200' } }],
     ['outer resCode 500', { PeakQuotations: { quotations: [], resCode: '500' } }],
     ['inner resCode 404', { PeakQuotations: { quotations: [{ resCode: '404', code: 'QO-1' }], resCode: '200' } }],
-    ['entries without code', { PeakQuotations: { quotations: [null, {}], resCode: '200' } }],
+    ['no object entries', { PeakQuotations: { quotations: [null, 5], resCode: '200' } }],
   ])('malformed payload (%s) throws PeakToolError, not TypeError', async (_n, payload) => {
     const { reader } = fake(() => payload);
     await expect(reader.getQuotation('QO-1')).rejects.toBeInstanceOf(PeakToolError);
@@ -158,7 +170,7 @@ describe('getContactName', () => {
     const { reader, calls } = fake(() => fx('search-contacts.json'));
     expect(await reader.getContactName('C01890')).toBe('ไทยฟูดส์ อาหารสัตว์');
     expect(calls[0].name).toBe('search_contacts');
-    expect(calls[0].args.searchText).toBe('C01890');
+    expect(calls[0].args).toEqual({ searchText: 'C01890', limit: 10 });
   });
   it('null when no contacts, a different code, or blank name', async () => {
     const a = fake(() => ({ PeakContacts: { contacts: [], totalContact: 1997, resCode: '200' } }));

@@ -130,8 +130,11 @@ export function createPeakReader(client: PeakClient): PeakReader {
       const { list } = unwrap(raw, 'PeakQuotations', 'quotations', 'get_quotation');
       if (list.length === 0) return null;
       const entries = list.filter(isObj);
-      const o = entries.find((e) => str(e.code) === code) ?? entries.find((e) => str(e.code) !== '');
-      if (!o) throw new PeakToolError('Peak get_quotation returned an unexpected payload');
+      if (entries.length === 0) throw new PeakToolError('Peak get_quotation returned an unexpected payload');
+      // Never substitute a different quotation: only an exact (trimmed, case-insensitive) code match counts.
+      const want = code.trim().toLowerCase();
+      const o = entries.find((e) => str(e.code).trim().toLowerCase() === want);
+      if (!o) return null;
       if (o.resCode !== undefined && String(o.resCode) !== '200') {
         throw new PeakToolError(`Peak get_quotation returned resCode ${String(o.resCode).slice(0, 10)}`);
       }
