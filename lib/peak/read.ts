@@ -50,8 +50,14 @@ type Obj = Record<string, unknown>;
 function isObj(v: unknown): v is Obj {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
+/** Lone (unpaired) UTF-16 surrogates — Postgres rejects them (like NUL) in JSONB/text. */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+/**
+ * Every Peak string goes through here: a NUL is dropped and a lone surrogate
+ * becomes U+FFFD, so a snapshot of the quotation can always be stored as JSONB.
+ */
 function str(v: unknown): string {
-  return typeof v === 'string' ? v : '';
+  return typeof v === 'string' ? v.replaceAll('\u0000', '').replace(LONE_SURROGATE, '\uFFFD') : '';
 }
 function num(v: unknown): number | null {
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
@@ -101,7 +107,8 @@ function toLines(products: unknown): PeakLine[] {
   const used = new Set<string>();
   return products.map((p, i) => {
     const o = isObj(p) ? p : {};
-    let key = typeof o.id === 'string' && o.id.trim() !== '' ? o.id : `idx:${i}`;
+    const id = str(o.id);
+    let key = id.trim() !== '' ? id : `idx:${i}`;
     // Keys are idempotency keys downstream: force uniqueness if Peak repeats an id.
     if (used.has(key)) key = `idx:${i}`;
     used.add(key);

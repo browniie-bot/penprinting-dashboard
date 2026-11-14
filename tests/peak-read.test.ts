@@ -189,3 +189,43 @@ describe('getContactName', () => {
     await expect(c.reader.getContactName('C01890')).rejects.toBeInstanceOf(PeakToolError);
   });
 });
+
+describe('untrusted strings are made Postgres-safe (no NUL, no lone surrogate)', () => {
+  it('strips NUL and replaces a lone surrogate in a description; valid pairs untouched', async () => {
+    const { reader } = fake(() => ({
+      PeakQuotations: {
+        quotations: [{ code: 'QO-1', products: [{ id: 'k1', description: 'ใบปลิว\u0000A5 \ud83d x 😀' }] }],
+        resCode: '200',
+      },
+    }));
+    const q = await reader.getQuotation('QO-1');
+    expect(q!.lines[0].description).toBe('ใบปลิวA5 � x 😀');
+  });
+  it('a lone low surrogate and a NUL in status / contact code are cleaned too', async () => {
+    const { reader } = fake(() => ({
+      PeakQuotations: {
+        quotations: [{ code: 'QO-1', status: 'Appr\u0000ove', contactCode: 'C\udc001', products: [] }],
+        resCode: '200',
+      },
+    }));
+    const q = await reader.getQuotation('QO-1');
+    expect(q!.status).toBe('Approve');
+    expect(q!.contactCode).toBe('C�1');
+  });
+  it('a line id containing a NUL is stripped (the line key)', async () => {
+    const { reader } = fake(() => ({
+      PeakQuotations: { quotations: [{ code: 'QO-1', products: [{ id: 'ab\u0000cd' }, { id: '\u0000' }] }], resCode: '200' },
+    }));
+    const q = await reader.getQuotation('QO-1');
+    expect(q!.lines.map((l) => l.key)).toEqual(['abcd', 'idx:1']);
+  });
+  it('a list row code with a NUL is stripped', async () => {
+    const { reader } = fake(() => quots([{ code: 'QO-\u00001', issuedDate: '20260101', contactCode: 'C\u00001' }], 1));
+    const r = await reader.listQuotations({ page: 1 });
+    expect(r.rows[0]).toMatchObject({ code: 'QO-1', contactCode: 'C1' });
+  });
+  it('a contact name with a NUL is stripped', async () => {
+    const { reader } = fake(() => ({ PeakContacts: { contacts: [{ code: 'C01890', name: 'ไทย\u0000ฟูดส์' }], resCode: '200' } }));
+    expect(await reader.getContactName('C01890')).toBe('ไทยฟูดส์');
+  });
+});
