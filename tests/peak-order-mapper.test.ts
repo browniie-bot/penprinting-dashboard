@@ -120,6 +120,7 @@ describe('buildOrderBody', () => {
       peak: { code: 'QO-20261100072', lineKeys: ['a', 'b'], draftId: 'd-1' },
     });
     expect(QTY_UNITS).toContain(b.qtyUnit);
+    expect(b.peak).toEqual({ code: 'QO-20261100072', lineKeys: ['a', 'b'], draftId: 'd-1' });
     expect('price' in b).toBe(false);
     expect('status' in b).toBe(false);
     expect('force' in b).toBe(false);
@@ -129,6 +130,13 @@ describe('buildOrderBody', () => {
     expect(b.status).toBe('draft');
     expect(b.force).toBe(true);
     expect(b.assignStaff).toBe('');
+  });
+  it('merged unit marker lists every line key, exactly', () => {
+    const q = Q([['a', 'A', 1], ['b', 'B', 2], ['c', 'C', 3]]);
+    const [u] = planUnits(q, 'merged');
+    const b = buildOrderBody({ ...base, unit: u, choices: { graphic: 'pook', press: '', dateDue: '2026-11-20' } });
+    expect(b.peak).toEqual({ code: 'QO-20261100072', lineKeys: ['a', 'b', 'c'], draftId: 'd-1' });
+    expect(Object.keys(b.peak as object).sort()).toEqual(['code', 'draftId', 'lineKeys']);
   });
   it('no qtyUnit keeps the form default', () => {
     const b = buildOrderBody({ ...base, choices: { graphic: 'pook', press: '', dateDue: '2026-11-20' } });

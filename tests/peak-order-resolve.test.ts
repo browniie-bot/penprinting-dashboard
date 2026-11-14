@@ -137,6 +137,20 @@ describe('resolveOrderCommand', () => {
     expect(r2.choices).toHaveLength(2);
   });
 
+  it('text: a filter keeps only quotations containing EVERY filter word', async () => {
+    const rows = [row(1), row(2), row(3)];
+    const descs: Record<string, string> = { [rows[0].code]: 'ไวนิล ขนาด 1x2', [rows[1].code]: 'ไวนิล ขนาด 3x4', [rows[2].code]: 'สติกเกอร์ 1x2' };
+    const f = fake({
+      listQuotations: async (q: { searchText?: string }) => (q.searchText === 'abc' ? { rows, total: 3 } : { rows: [], total: 0 }),
+      newestQuotations: async () => rows,
+      getQuotation: async (c: string) => quot(rows.find((r) => r.code === c)!, descs[c]),
+    });
+    const r = await resolveOrderCommand({ kind: 'text', words: ['abc', 'ไวนิล', '1x2'] }, { peak: f.reader, openedCodes: opened(), todayISO: TODAY });
+    if (r.kind !== 'choices') throw new Error('expected choices');
+    expect(r.note).toBeUndefined();
+    expect(r.choices.map((c) => c.code)).toEqual([rows[0].code]);
+  });
+
   it('text: no survivor -> 5 unfiltered with a note', async () => {
     const rows = [1, 2, 3, 4, 5, 6].map((n) => row(n));
     const f = fake({
