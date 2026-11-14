@@ -9,11 +9,13 @@ const tokenMock = vi.fn();
 const okMock = vi.fn();
 const errMock = vi.fn();
 const claimMock = vi.fn();
+const releaseMock = vi.fn();
 vi.mock('@/lib/peak/token-store', () => ({
   getPeakAccessToken: (...a: unknown[]) => tokenMock(...a),
   recordPeakOk: (...a: unknown[]) => okMock(...a),
   recordPeakError: (...a: unknown[]) => errMock(...a),
   claimDailyAlert: (...a: unknown[]) => claimMock(...a),
+  releaseDailyAlert: (...a: unknown[]) => releaseMock(...a),
   PeakNotConnectedError: NotConnected,
 }));
 const listMock = vi.fn();
@@ -38,6 +40,7 @@ beforeEach(() => {
   okMock.mockResolvedValue(undefined);
   errMock.mockResolvedValue(undefined);
   claimMock.mockResolvedValue(true);
+  releaseMock.mockResolvedValue(undefined);
   pushMock.mockResolvedValue(undefined);
 });
 afterEach(() => {
@@ -106,20 +109,43 @@ describe('peak-keepalive cron', () => {
     expect(pushMock).not.toHaveBeenCalled();
   });
 
-  it('push throws -> still 200', async () => {
+  it('push throws -> the alert slot is released once, still 200', async () => {
     tokenMock.mockRejectedValue(new AuthErr('x'));
     pushMock.mockRejectedValue(new Error('LINE push HTTP 500'));
     const res = await call();
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: false, alerted: false });
+    expect(claimMock).toHaveBeenCalledTimes(1);
+    expect(releaseMock).toHaveBeenCalledTimes(1);
   });
 
-  it('no usable group id -> records error, 200, no push', async () => {
+  it('push throws and the release throws too -> still 200, only class labels logged', async () => {
+    tokenMock.mockRejectedValue(new AuthErr('x'));
+    pushMock.mockRejectedValue(new Error('LINE push HTTP 500 SECRET'));
+    releaseMock.mockRejectedValue(new Error('db down SECRET'));
+    const res = await call();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: false, alerted: false });
+    expect(releaseMock).toHaveBeenCalledTimes(1);
+    const logged = (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls.flat().join(' ');
+    expect(logged).not.toContain('SECRET');
+  });
+
+  it('successful push -> slot kept (no release)', async () => {
+    tokenMock.mockRejectedValue(new AuthErr('x'));
+    await call();
+    expect(pushMock).toHaveBeenCalledTimes(1);
+    expect(releaseMock).not.toHaveBeenCalled();
+  });
+
+  it('no usable group id -> records error, 200, the alert slot is never claimed, no push', async () => {
     process.env.PEAK_ORDER_GROUP_IDS = ' , ,';
     tokenMock.mockRejectedValue(new AuthErr('x'));
     const res = await call();
     expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: false, alerted: false });
     expect(errMock).toHaveBeenCalled();
+    expect(claimMock).not.toHaveBeenCalled();
     expect(pushMock).not.toHaveBeenCalled();
   });
 

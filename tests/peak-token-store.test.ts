@@ -13,6 +13,7 @@ import {
   getPeakClientId,
   getPeakConnectionStatus,
   recordPeakError,
+  releaseDailyAlert,
   recordPeakOk,
   savePeakClient,
   savePeakTokens,
@@ -370,9 +371,18 @@ describe('client + status + health helpers', () => {
     handler = () => ({ rows: [{ id: 'peak' }] });
     await expect(claimDailyAlert()).resolves.toBe(true);
     expect(queries[0].text).toContain('last_alert_at');
-    expect(queries[0].text).toContain("INTERVAL '24 hours'");
+    // 20 h, not 24 h: a daily cron firing a few seconds early must still alert (cron jitter)
+    expect(queries[0].text).toContain("last_alert_at < NOW() - INTERVAL '20 hours'");
+    expect(queries[0].text).not.toContain('24 hours');
     handler = () => ({ rows: [] });
     await expect(claimDailyAlert()).resolves.toBe(false);
+  });
+
+  it('releaseDailyAlert gives the slot back (last_alert_at = NULL on the peak row)', async () => {
+    handler = () => ({ rows: [] });
+    await releaseDailyAlert();
+    expect(queries).toHaveLength(1);
+    expect(queries[0].text.replace(/\s+/g, ' ').trim()).toBe("UPDATE peak_oauth SET last_alert_at = NULL WHERE id = 'peak'");
   });
 });
 

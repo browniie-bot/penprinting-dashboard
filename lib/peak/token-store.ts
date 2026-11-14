@@ -226,11 +226,20 @@ export async function recordPeakError(message: string): Promise<void> {
     WHERE id = 'peak'`;
 }
 
-/** True at most once per 24h — gates the "Peak connection broken" alert. */
+/**
+ * True at most once per 20 h — gates the "Peak connection broken" alert. 20 h
+ * (not 24 h) so a daily cron firing a few seconds earlier than yesterday still
+ * alerts, while it still alerts at most once per day (spec §6.3).
+ */
 export async function claimDailyAlert(): Promise<boolean> {
   const { rows } = await sql`
     UPDATE peak_oauth SET last_alert_at = NOW()
-    WHERE id = 'peak' AND (last_alert_at IS NULL OR last_alert_at < NOW() - INTERVAL '24 hours')
+    WHERE id = 'peak' AND (last_alert_at IS NULL OR last_alert_at < NOW() - INTERVAL '20 hours')
     RETURNING id`;
   return rows.length > 0;
+}
+
+/** Gives a claimed alert slot back (the push failed), so the next run can alert. */
+export async function releaseDailyAlert(): Promise<void> {
+  await sql`UPDATE peak_oauth SET last_alert_at = NULL WHERE id = 'peak'`;
 }

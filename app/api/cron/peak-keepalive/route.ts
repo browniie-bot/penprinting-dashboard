@@ -1,6 +1,13 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
-import { getPeakAccessToken, recordPeakOk, recordPeakError, claimDailyAlert, PeakNotConnectedError } from '@/lib/peak/token-store';
+import {
+  getPeakAccessToken,
+  recordPeakOk,
+  recordPeakError,
+  claimDailyAlert,
+  releaseDailyAlert,
+  PeakNotConnectedError,
+} from '@/lib/peak/token-store';
 import { createPeakClient } from '@/lib/peak/mcp-client';
 import { createPeakReader } from '@/lib/peak/read';
 import { peakErrorLabel } from '@/lib/peak/error-label';
@@ -28,7 +35,8 @@ function firstGroupId(): string | null {
 
 /** Vercel Cron — daily 07:30 Bangkok. Forces a token refresh (keeps the rotating
  *  refresh token alive), does one cheap read, records health, and sends at most
- *  one LINE alert per 24h when the connection is broken.
+ *  one LINE alert per day (20 h slot) when the connection is broken. The slot is
+ *  claimed only once a group id is known, and given back if the push fails.
  *
  *  Cron-only auth: `Authorization: Bearer ${CRON_SECRET}`; unset secret never authorises.
  *  After auth the route always answers 200: bookkeeping failures (DB down) are
@@ -58,16 +66,29 @@ export async function GET(req: Request) {
       console.error('[peak-keepalive] recordPeakError failed');
     }
     let alerted = false;
+    const to = firstGroupId();
+    if (!to) {
+      console.error('[peak-keepalive] no alert: PEAK_ORDER_GROUP_IDS has no group id');
+      return NextResponse.json({ ok: false, alerted });
+    }
+    let claimed = false;
     try {
-      if (await claimDailyAlert()) {
-        const to = firstGroupId();
-        if (to) {
-          await pushLine(to, ALERT_TEXT);
-          alerted = true;
+      claimed = await claimDailyAlert();
+    } catch (e) {
+      console.error('[peak-keepalive] alert claim failed:', peakErrorLabel(e));
+    }
+    if (claimed) {
+      try {
+        await pushLine(to, ALERT_TEXT);
+        alerted = true;
+      } catch (e) {
+        console.error('[peak-keepalive] alert push failed:', peakErrorLabel(e));
+        try {
+          await releaseDailyAlert();
+        } catch (e2) {
+          console.error('[peak-keepalive] alert release failed:', peakErrorLabel(e2));
         }
       }
-    } catch (e) {
-      console.error('[peak-keepalive] alert failed:', peakErrorLabel(e));
     }
     return NextResponse.json({ ok: false, alerted });
   }
