@@ -92,3 +92,12 @@ Execution mode: subagent-driven (user chose "แบบ 1"). Controller model: fa
 - Task 3: minor (deferred): tests/peak-token-store.test.ts does not assert the `CASE WHEN peak_oauth.client_id = EXCLUDED.client_id` text of savePeakClient
 - Task 3: minor (deferred): when the lock winner fails with PeakAuthError the waiting callers surface PeakUnavailableError ("retry later"), not the auth error — callers must not read it as "connection healthy"
 - Task 3: complete (commits 4a2c921..8477af3, review clean — trailer deviation parked by the ruling above)
+- Task 4: BASE 3ea87c8 — implementer (sonnet) DONE — commit 342108b; 1030 tests green; trailer verified by controller before push.
+- Task 4: review (sonnet) ✅ spec compliant, Approved; no Critical/Important.
+- Ruling: Task 4 maps HTTP 403 from the MCP endpoint to `PeakAuthError` (outside the task text; reviewer asked the controller to confirm) — accepted: a 403 with a valid bearer means the grant/scope is not accepted, which a retry cannot fix, so "reconnect at /peak" is the right message — cost if wrong: a transient 403 would tell staff to reconnect when a retry would have worked.
+- Task 4: ⚠️ "cannot verify": real-wire behaviour against mcp.peakaccount.com (SSE framing, session header, 404 body) — untestable here by rule (never call Peak); parked for the manual smoke (the "ทดสอบ" button on /peak is the first real call).
+- Task 4: minor (deferred): tests/peak-mcp-client.test.ts "404 three times" asserts `inits() <= 3` — tighten to `toBe(3)` + 3 tools/call requests
+- Task 4: minor (deferred): no test for a 401 during `initialize`, nor for a body read that fails after the headers arrived (both paths exist in code)
+- Task 4: minor (deferred): `isError` / JSON-RPC error messages carry only the tool name + code (safe, but thin for debugging)
+- Task 4: minor (deferred): the 10 s timeout is per HTTP request, not per `call()` — a 404 re-init sequence can take up to ~3 × 3 requests × 10 s worst case; callers inside the 60 s `after()` budget should know
+- Task 4: complete (commits 3ea87c8..342108b, review clean)
