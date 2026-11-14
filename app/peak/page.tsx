@@ -6,7 +6,9 @@ import { COOKIE_NAME, verifySession } from '@/lib/auth';
 import { DashboardShell } from '@/components/dashboard-shell';
 import { isPostgresConfigured } from '@/lib/postgres';
 import { getPeakConnectionStatus, type PeakConnectionStatus } from '@/lib/peak/token-store';
-import { PeakClient } from './peak-client';
+import { peakOrderDb } from '@/lib/peak-order/db';
+import { peakOrderConfig } from '@/lib/peak-order/deps';
+import { PeakClient, StaffList } from './peak-client';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'เชื่อมต่อ Peak' };
@@ -52,6 +54,19 @@ export default async function PeakPage({
     }
   }
 
+  const cfg = peakOrderConfig();
+  const tail4 = (id: string) => `…${id.slice(-4)}`;
+
+  let staff: Awaited<ReturnType<typeof peakOrderDb.listStaff>> = [];
+  let staffFailed = false;
+  if (dbReady) {
+    try {
+      staff = await peakOrderDb.listStaff();
+    } catch {
+      staffFailed = true;
+    }
+  }
+
   const errorText = sp.error ? ERROR_TEXT[sp.error] : undefined;
 
   return (
@@ -94,6 +109,34 @@ export default async function PeakPage({
           </dl>
         )}
         <PeakClient connected={Boolean(status?.connected)} />
+        <section className="space-y-2">
+          <h2 className="text-sm font-semibold text-stone-900">คำสั่ง /order ใน LINE</h2>
+          <dl className="rounded-md border border-stone-200 bg-white divide-y divide-stone-100 text-sm">
+            <Row label="สถานะ" value={cfg.enabled ? 'เปิดใช้งาน' : 'ปิดอยู่'} />
+            <Row label="จำนวนกลุ่มที่อนุญาต" value={String(cfg.groupIds.length)} />
+            <Row
+              label="กลุ่ม (4 ตัวท้าย)"
+              value={cfg.groupIds.length ? cfg.groupIds.map(tail4).join(', ') : '–'}
+            />
+          </dl>
+        </section>
+        <section className="space-y-2">
+          <h2 className="text-sm font-semibold text-stone-900">ผู้สั่งงานที่ผูกกับ LINE</h2>
+          {!dbReady ? (
+            <p className="text-sm text-stone-600">ยังไม่ได้ตั้งค่าฐานข้อมูล</p>
+          ) : staffFailed ? (
+            <p className="text-sm text-stone-600">อ่านรายชื่อจากฐานข้อมูลไม่ได้ในขณะนี้</p>
+          ) : (
+            <StaffList
+              rows={staff.map((r) => ({
+                lineUserId: r.lineUserId,
+                orderer: r.orderer,
+                displayName: r.displayName,
+                date: fmtBkk(r.createdAt),
+              }))}
+            />
+          )}
+        </section>
       </div>
     </DashboardShell>
   );

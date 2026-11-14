@@ -43,6 +43,10 @@ vi.mock('@/lib/peak/read', () => ({
   createPeakReader: () => ({ newestQuotations: (...a: unknown[]) => newestMock(...a) }),
 }));
 
+const deleteStaffMock = vi.fn();
+vi.mock('@/lib/peak-order/db', () => ({ peakOrderDb: { deleteStaff: (...a: unknown[]) => deleteStaffMock(...a) } }));
+
+import { POST as staffRoute } from '@/app/api/admin/peak/staff/route';
 import { GET as connect } from '@/app/api/admin/peak/connect/route';
 import { GET as callback } from '@/app/api/admin/peak/callback/route';
 import { POST as testRoute } from '@/app/api/admin/peak/test/route';
@@ -310,5 +314,47 @@ describe('POST /api/admin/peak/test', () => {
     expect(text).not.toContain('sekret');
     expect(errMock).toHaveBeenCalledOnce();
     expect(String(errMock.mock.calls[0][0])).not.toContain('sekret');
+  });
+});
+
+describe('POST /api/admin/peak/staff', () => {
+  const post = (body: unknown, raw = false) =>
+    staffRoute(new Request('https://dashboard.penprinting.co/api/admin/peak/staff', {
+      method: 'POST',
+      body: raw ? (body as string) : JSON.stringify(body),
+    }));
+
+  it('blocks non-admin', async () => {
+    sessionMock.mockResolvedValue(NextResponse.json({ error: 'forbidden' }, { status: 403 }));
+    const res = await post({ lineUserId: 'U1' });
+    expect(res.status).toBe(403);
+    expect(sessionMock).toHaveBeenCalledWith(['admin']);
+    expect(deleteStaffMock).not.toHaveBeenCalled();
+  });
+  it('deletes by id', async () => {
+    deleteStaffMock.mockResolvedValue(undefined);
+    const res = await post({ lineUserId: 'U1' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(deleteStaffMock).toHaveBeenCalledWith('U1');
+  });
+  it.each([[{}], [{ lineUserId: '' }], [{ lineUserId: '   ' }], [{ lineUserId: 5 }], [null]])(
+    'rejects missing/empty/non-string id %j with 400', async (b) => {
+      const res = await post(b);
+      expect(res.status).toBe(400);
+      expect(deleteStaffMock).not.toHaveBeenCalled();
+    });
+  it('invalid JSON -> 400', async () => {
+    expect((await post('{not json', true)).status).toBe(400);
+    expect(deleteStaffMock).not.toHaveBeenCalled();
+  });
+  it('db error -> 500 with a fixed label, no leak', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    deleteStaffMock.mockRejectedValue(new Error('connection to db-host-secret failed'));
+    const res = await post({ lineUserId: 'U1' });
+    expect(res.status).toBe(500);
+    const text = await res.text();
+    expect(text).not.toContain('db-host-secret');
+    expect(JSON.parse(text).error).toBe('delete_failed');
   });
 });
