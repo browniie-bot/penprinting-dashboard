@@ -269,6 +269,22 @@ describe('getPeakAccessToken', () => {
   });
 });
 
+describe('refresh lease statement (pinned)', () => {
+  it('the lease is taken only when no lease is held or the held one has expired', async () => {
+    handler = (q) => {
+      if (isSelect(q)) return { rows: [row({ access_expires_at: new Date(NOW - 1000) })] };
+      if (isLock(q)) return { rows: [{ client_id: 'cid-1', refresh_token_enc: encryptSecret(OLD_RT) }] };
+      return { rows: [] };
+    };
+    // Only the lease statement's text matters here; the outcome of the rest is covered above.
+    await getPeakAccessToken({}, { refresh: async () => tokenSet(), sleep: noSleep, nowMs }).catch(() => undefined);
+    const lock = queries.find(isLock)!;
+    const flat = lock.text.replace(/\s+/g, ' ');
+    expect(flat).toContain("SET refresh_lock_until = NOW() + INTERVAL '30 seconds'");
+    expect(flat).toContain("WHERE id = 'peak' AND (refresh_lock_until IS NULL OR refresh_lock_until < NOW())");
+  });
+});
+
 describe('savePeakTokens', () => {
   const expiryParam = (q: Q) =>
     q.values.find((v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) as string;

@@ -35,6 +35,7 @@ vi.mock('@/lib/peak/read', () => ({ createPeakReader: vi.fn() }));
 
 import { POST } from '@/app/api/ai-quote/line/route';
 import * as route from '@/app/api/ai-quote/line/route';
+import { CREATING_STALE_MS } from '@/lib/peak-order/handler';
 
 const KEY = Buffer.alloc(32, 3).toString('base64');
 const saved = { ...process.env };
@@ -84,5 +85,11 @@ describe('LINE route peak-order wiring', () => {
     await POST(req() as never);
     await Promise.all(pending);
     expect(handleInboundMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('stale-creating window vs the route budget', () => {
+  it('CREATING_STALE_MS is longer than the route maxDuration (a live attempt is never presumed dead)', () => {
+    expect(CREATING_STALE_MS).toBeGreaterThan(route.maxDuration * 1000);
   });
 });

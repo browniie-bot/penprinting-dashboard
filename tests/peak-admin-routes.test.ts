@@ -175,6 +175,9 @@ describe('GET /api/admin/peak/callback', () => {
   });
 
   it('state mismatch -> error=state, no exchange, cookie cleared', async () => {
+    // Only the state/code check can stop the exchange: client id present, exchange would succeed.
+    getClientMock.mockResolvedValue('cid-1');
+    exchangeMock.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresInSec: 3600, scope: 'mcp:read' });
     const res = await callback(cbReq('code=c&state=WRONG', goodCookie));
     expect(path(res)).toBe('/peak?error=state');
     expect(exchangeMock).not.toHaveBeenCalled();
@@ -182,6 +185,9 @@ describe('GET /api/admin/peak/callback', () => {
   });
 
   it('no cookie -> error=state', async () => {
+    // Only the state/code check can stop the exchange: client id present, exchange would succeed.
+    getClientMock.mockResolvedValue('cid-1');
+    exchangeMock.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresInSec: 3600, scope: 'mcp:read' });
     const res = await callback(cbReq(`code=c&state=${STATE}`));
     expect(path(res)).toBe('/peak?error=state');
     expect(exchangeMock).not.toHaveBeenCalled();
@@ -189,12 +195,19 @@ describe('GET /api/admin/peak/callback', () => {
   });
 
   it('malformed cookie -> error=state', async () => {
+    // Only the state/code check can stop the exchange: client id present, exchange would succeed.
+    getClientMock.mockResolvedValue('cid-1');
+    exchangeMock.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresInSec: 3600, scope: 'mcp:read' });
     const res = await callback(cbReq(`code=c&state=${STATE}`, 'not json'));
     expect(path(res)).toBe('/peak?error=state');
+    expect(exchangeMock).not.toHaveBeenCalled();
     expect(clearsCookie(res)).toBe(true);
   });
 
   it('missing code -> error=state', async () => {
+    // Only the state/code check can stop the exchange: client id present, exchange would succeed.
+    getClientMock.mockResolvedValue('cid-1');
+    exchangeMock.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresInSec: 3600, scope: 'mcp:read' });
     const res = await callback(cbReq(`state=${STATE}`, goodCookie));
     expect(path(res)).toBe('/peak?error=state');
     expect(exchangeMock).not.toHaveBeenCalled();

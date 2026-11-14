@@ -906,6 +906,20 @@ describe('handlePeakOrderPostback — crash recovery', () => {
     expect(f.created).toEqual([]);
   });
 
+  it('creating tapped at 119 s → silent, state unchanged; at 121 s → recovers', async () => {
+    const f = setup();
+    await stuck(f, true);
+    f.clock.advance(119_000);
+    const before = state(f);
+    await tap(f, okCreate());
+    expect(state(f)).toBe(before);
+    expect(draft(f).step).toBe('creating');
+    f.clock.advance(2_000);
+    await tap(f, okCreate());
+    expect(f.created).toEqual([]);
+    expect(draft(f)).toMatchObject({ step: 'done', units: [expect.objectContaining({ result: { kind: 'existing', orderId: 9050 } })] });
+  });
+
   it('creating younger than 2 min → silent; x on creating → silent; wrong u → silent', async () => {
     const f = setup();
     await stuck(f, true);
