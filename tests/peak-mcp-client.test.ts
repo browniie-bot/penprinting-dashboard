@@ -236,3 +236,9 @@ describe('createPeakClient', () => {
     expect(String((err as Error).message)).not.toContain(SENTINEL);
   });
 });
+
+import { it as itName, expect as expectName } from 'vitest';
+itName('error class names are stable (survive minification)', async () => {
+  expectName(new (await import('@/lib/peak/mcp-client')).PeakToolError('m').name).toBe('PeakToolError');
+  expectName(new (await import('@/lib/peak/mcp-client')).PeakToolError('m')).toBeInstanceOf(Error);
+});

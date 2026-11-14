@@ -19,7 +19,10 @@ import {
  * RETURNING) picks one refresher; the others poll for the token it writes.
  */
 
-export class PeakNotConnectedError extends Error {}
+export class PeakNotConnectedError extends Error {
+  // explicit: constructor.name is mangled by production minification
+  name = 'PeakNotConnectedError';
+}
 
 export interface PeakConnectionStatus {
   clientRegistered: boolean;

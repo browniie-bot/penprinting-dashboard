@@ -375,3 +375,9 @@ describe('client + status + health helpers', () => {
     await expect(claimDailyAlert()).resolves.toBe(false);
   });
 });
+
+import { it as itName, expect as expectName } from 'vitest';
+itName('error class names are stable (survive minification)', async () => {
+  expectName(new (await import('@/lib/peak/token-store')).PeakNotConnectedError('m').name).toBe('PeakNotConnectedError');
+  expectName(new (await import('@/lib/peak/token-store')).PeakNotConnectedError('m')).toBeInstanceOf(Error);
+});

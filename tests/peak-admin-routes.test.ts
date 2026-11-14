@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
 import { NextResponse } from 'next/server';
 import { PeakConfigError } from '@/lib/peak/crypto';
 
@@ -50,9 +50,13 @@ import { POST as testRoute } from '@/app/api/admin/peak/test/route';
 const ADMIN = { user: 'nook', role: 'admin' };
 const SECRET_VERIFIER = 'VERIFIER-SECRET-123';
 const STATE = 'state-abc';
+afterAll(() => {
+  delete process.env.PEAK_TOKEN_ENC_KEY;
+});
 
 beforeEach(() => {
   vi.resetAllMocks();
+  process.env.PEAK_TOKEN_ENC_KEY = Buffer.alloc(32, 7).toString('base64');
   sessionMock.mockResolvedValue(ADMIN);
   pkceMock.mockReturnValue({ verifier: SECRET_VERIFIER, challenge: 'chal', state: STATE });
 });
@@ -109,11 +113,27 @@ describe('GET /api/admin/peak/connect', () => {
     expect(loc(res)).toContain('c=cid-existing');
   });
 
-  it('redirects to /peak?error=config on PeakConfigError', async () => {
-    getClientMock.mockRejectedValue(new PeakConfigError('PEAK_TOKEN_ENC_KEY is not set'));
+  for (const [label, key] of [['unset', undefined], ['invalid', 'c2hvcnQ=']] as const) {
+    it(`PEAK_TOKEN_ENC_KEY ${label} -> /peak?error=config before any registration, write or cookie`, async () => {
+      if (key === undefined) delete process.env.PEAK_TOKEN_ENC_KEY;
+      else process.env.PEAK_TOKEN_ENC_KEY = key;
+      const res = await connect(req());
+      expect(res.status).toBe(302);
+      const u = new URL(loc(res));
+      expect(u.pathname + u.search).toBe('/peak?error=config');
+      expect(getClientMock).not.toHaveBeenCalled();
+      expect(registerMock).not.toHaveBeenCalled();
+      expect(saveClientMock).not.toHaveBeenCalled();
+      expect(res.headers.get('set-cookie') ?? '').not.toContain('pp_peak_oauth');
+    });
+  }
+
+  it('generic DB error -> /peak?error=exchange', async () => {
+    getClientMock.mockRejectedValue(new Error('connection refused postgres://secret'));
     const res = await connect(req());
     expect(res.status).toBe(302);
-    expect(new URL(loc(res)).pathname + new URL(loc(res)).search).toBe('/peak?error=config');
+    expect(loc(res)).toMatch(/\/peak\?error=exchange$/);
+    expect(res.headers.get('set-cookie') ?? '').not.toContain('pp_peak_oauth');
   });
 
   it('redirects to /peak?error=exchange when registration fails', async () => {
@@ -213,6 +233,23 @@ describe('GET /api/admin/peak/callback', () => {
     expect(clearsCookie(res)).toBe(true);
   });
 
+  it('generic Error from savePeakTokens -> error=exchange, cookie cleared', async () => {
+    getClientMock.mockResolvedValue('cid-1');
+    exchangeMock.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresInSec: 1, scope: null });
+    saveTokensMock.mockRejectedValue(new Error('peak_oauth row missing'));
+    const res = await callback(cbReq(`code=c&state=${STATE}`, goodCookie));
+    expect(res.status).toBe(302);
+    expect(path(res)).toBe('/peak?error=exchange');
+    expect(clearsCookie(res)).toBe(true);
+  });
+
+  it('generic Error from getPeakClientId -> error=exchange, cookie cleared', async () => {
+    getClientMock.mockRejectedValue(new Error('db down'));
+    const res = await callback(cbReq(`code=c&state=${STATE}`, goodCookie));
+    expect(path(res)).toBe('/peak?error=exchange');
+    expect(clearsCookie(res)).toBe(true);
+  });
+
   it('no registered client -> error=state', async () => {
     getClientMock.mockResolvedValue(null);
     const res = await callback(cbReq(`code=c&state=${STATE}`, goodCookie));
@@ -223,6 +260,16 @@ describe('GET /api/admin/peak/callback', () => {
 });
 
 describe('POST /api/admin/peak/test', () => {
+  it('unknown error (even with a custom name) -> fixed label Error', async () => {
+    class Weird extends Error {
+      name = 'Bearer-sekret';
+    }
+    newestMock.mockRejectedValue(new Weird('x'));
+    const body = await (await testRoute()).json();
+    expect(body).toEqual({ ok: false, error: 'Error' });
+    expect(errMock.mock.calls[0][0]).toBe('Error');
+  });
+
 
   it('non-admin gets the requireSession response', async () => {
     sessionMock.mockResolvedValue(NextResponse.json({ error: 'Forbidden' }, { status: 403 }));
@@ -252,7 +299,9 @@ describe('POST /api/admin/peak/test', () => {
   });
 
   it('failure records the error and returns only the class name', async () => {
-    class PeakToolError extends Error {}
+    class PeakToolError extends Error {
+      name = 'PeakToolError';
+    }
     newestMock.mockRejectedValue(new PeakToolError('Bearer sekret-token leaked'));
     const res = await testRoute();
     const text = await res.text();

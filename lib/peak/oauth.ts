@@ -16,9 +16,15 @@ export interface PeakTokenSet {
 }
 
 /** Peak rejected us — reconnect needed. */
-export class PeakAuthError extends Error {}
+export class PeakAuthError extends Error {
+  // explicit: constructor.name is mangled by production minification
+  name = 'PeakAuthError';
+}
 /** Network / 5xx / timeout — retry later. */
-export class PeakUnavailableError extends Error {}
+export class PeakUnavailableError extends Error {
+  // explicit: constructor.name is mangled by production minification
+  name = 'PeakUnavailableError';
+}
 
 type FetchLike = typeof fetch;
 

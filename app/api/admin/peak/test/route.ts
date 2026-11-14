@@ -4,6 +4,7 @@ import { requireSession } from '@/lib/route-helpers';
 import { createPeakClient } from '@/lib/peak/mcp-client';
 import { createPeakReader } from '@/lib/peak/read';
 import { recordPeakError, recordPeakOk } from '@/lib/peak/token-store';
+import { peakErrorLabel } from '@/lib/peak/error-label';
 import { bangkokTodayISO } from '@/lib/jobs';
 
 export const dynamic = 'force-dynamic';
@@ -32,7 +33,7 @@ export async function POST() {
     }
     return NextResponse.json({ ok: true, latestCode: rows[0]?.code ?? null, ms });
   } catch (err) {
-    const name = err instanceof Error ? err.constructor.name : 'Error';
+    const name = peakErrorLabel(err);
     try {
       await recordPeakError(name);
     } catch {

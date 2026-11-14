@@ -221,3 +221,11 @@ describe('error mapping', () => {
     }
   });
 });
+
+import { it as itName, expect as expectName } from 'vitest';
+itName('error class names are stable (survive minification)', async () => {
+  expectName(new (await import('@/lib/peak/oauth')).PeakAuthError('m').name).toBe('PeakAuthError');
+  expectName(new (await import('@/lib/peak/oauth')).PeakAuthError('m')).toBeInstanceOf(Error);
+  expectName(new (await import('@/lib/peak/oauth')).PeakUnavailableError('m').name).toBe('PeakUnavailableError');
+  expectName(new (await import('@/lib/peak/oauth')).PeakUnavailableError('m')).toBeInstanceOf(Error);
+});

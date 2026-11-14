@@ -7,7 +7,10 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
  * Key: base64 of exactly 32 bytes, from PEAK_TOKEN_ENC_KEY unless passed.
  * Error messages never include the key, the plaintext or the blob.
  */
-export class PeakConfigError extends Error {}
+export class PeakConfigError extends Error {
+  // explicit: constructor.name is mangled by production minification
+  name = 'PeakConfigError';
+}
 
 const VERSION = 'v1';
 const IV_BYTES = 12;
@@ -21,6 +24,11 @@ function loadKey(keyB64?: string): Buffer {
     throw new PeakConfigError('PEAK_TOKEN_ENC_KEY must be base64 of exactly 32 bytes');
   }
   return key;
+}
+
+/** Throws PeakConfigError unless PEAK_TOKEN_ENC_KEY is set and valid (real loader). */
+export function assertPeakKey(): void {
+  loadKey();
 }
 
 export function encryptSecret(plain: string, keyB64?: string): string {

@@ -76,3 +76,25 @@ describe('encryptSecret / decryptSecret', () => {
     expect(err?.message).not.toContain(OTHER_KEY);
   });
 });
+
+import { it as itName, expect as expectName } from 'vitest';
+itName('error class names are stable (survive minification)', async () => {
+  expectName(new (await import('@/lib/peak/crypto')).PeakConfigError('m').name).toBe('PeakConfigError');
+  expectName(new (await import('@/lib/peak/crypto')).PeakConfigError('m')).toBeInstanceOf(Error);
+});
+
+import { assertPeakKey } from '@/lib/peak/crypto';
+itName('assertPeakKey validates the env key with the real loader', () => {
+  const old = process.env.PEAK_TOKEN_ENC_KEY;
+  try {
+    delete process.env.PEAK_TOKEN_ENC_KEY;
+    expectName(() => assertPeakKey()).toThrow(PeakConfigError);
+    process.env.PEAK_TOKEN_ENC_KEY = 'c2hvcnQ=';
+    expectName(() => assertPeakKey()).toThrow(PeakConfigError);
+    process.env.PEAK_TOKEN_ENC_KEY = Buffer.alloc(32, 1).toString('base64');
+    expectName(() => assertPeakKey()).not.toThrow();
+  } finally {
+    if (old === undefined) delete process.env.PEAK_TOKEN_ENC_KEY;
+    else process.env.PEAK_TOKEN_ENC_KEY = old;
+  }
+});

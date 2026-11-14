@@ -1,14 +1,13 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { requireSession } from '@/lib/route-helpers';
-import { PeakConfigError } from '@/lib/peak/crypto';
+import { PeakConfigError, assertPeakKey } from '@/lib/peak/crypto';
 import {
-  PeakAuthError,
-  PeakUnavailableError,
   buildAuthorizeUrl,
   newPkce,
   registerPeakClient,
 } from '@/lib/peak/oauth';
+import { peakErrorLabel } from '@/lib/peak/error-label';
 import { getPeakClientId, savePeakClient } from '@/lib/peak/token-store';
 
 export const dynamic = 'force-dynamic';
@@ -21,6 +20,13 @@ function back(req: Request, error: string): NextResponse {
 export async function GET(req: Request) {
   const session = await requireSession(['admin']);
   if (session instanceof NextResponse) return session;
+
+  // Safely off: validate the key with the real loader before any registration / DB write / redirect.
+  try {
+    assertPeakKey();
+  } catch {
+    return back(req, 'config');
+  }
 
   try {
     let clientId = await getPeakClientId();
@@ -40,7 +46,7 @@ export async function GET(req: Request) {
     return res;
   } catch (err) {
     if (err instanceof PeakConfigError) return back(req, 'config');
-    if (err instanceof PeakAuthError || err instanceof PeakUnavailableError) return back(req, 'exchange');
-    throw err;
+    console.error('peak connect failed:', peakErrorLabel(err));
+    return back(req, 'exchange');
   }
 }

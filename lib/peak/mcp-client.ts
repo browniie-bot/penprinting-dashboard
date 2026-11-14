@@ -10,7 +10,10 @@ import { PEAK_MCP_URL, PeakAuthError, PeakUnavailableError } from '@/lib/peak/oa
 
 export type PeakToolName = 'get_quotation' | 'list_quotation' | 'search_contacts';
 /** Tool returned isError, a JSON-RPC error, or content that is not JSON. */
-export class PeakToolError extends Error {}
+export class PeakToolError extends Error {
+  // explicit: constructor.name is mangled by production minification
+  name = 'PeakToolError';
+}
 
 export interface PeakClient {
   call(name: PeakToolName, args: Record<string, unknown>): Promise<unknown>;

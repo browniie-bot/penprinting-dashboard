@@ -2,7 +2,8 @@ import 'server-only';
 import { NextResponse } from 'next/server';
 import { requireSession } from '@/lib/route-helpers';
 import { PeakConfigError } from '@/lib/peak/crypto';
-import { PeakAuthError, PeakUnavailableError, exchangeCode } from '@/lib/peak/oauth';
+import { exchangeCode } from '@/lib/peak/oauth';
+import { peakErrorLabel } from '@/lib/peak/error-label';
 import { getPeakClientId, recordPeakOk, savePeakTokens } from '@/lib/peak/token-store';
 
 export const dynamic = 'force-dynamic';
@@ -61,9 +62,7 @@ export async function GET(req: Request) {
     return done(req, 'connected=1');
   } catch (err) {
     if (err instanceof PeakConfigError) return done(req, 'error=config');
-    if (err instanceof PeakAuthError || err instanceof PeakUnavailableError) {
-      return done(req, 'error=exchange');
-    }
-    throw err;
+    console.error('peak callback failed:', peakErrorLabel(err));
+    return done(req, 'error=exchange');
   }
 }
