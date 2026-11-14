@@ -7,7 +7,7 @@ import { createPeakClient } from '@/lib/peak/mcp-client';
 import { createPeakReader } from '@/lib/peak/read';
 import { newDraftId, peakOrderDb } from '@/lib/peak-order/db';
 import { handlePeakOrderPostback, handlePeakOrderText, type PeakOrderDeps } from '@/lib/peak-order/handler';
-import type { Card } from '@/lib/peak-order/flex';
+import { TEXT, type Card } from '@/lib/peak-order/flex';
 
 /**
  * Env config + real-dependency wiring for the LINE /order flow (spec §6.7).
@@ -26,6 +26,12 @@ export function peakOrderConfig(env: NodeJS.ProcessEnv = process.env): { enabled
 
 function errClass(e: unknown): string {
   return e instanceof Error && e.name ? e.name : 'unknown';
+}
+
+/** ' SQLSTATE 42P01' when the thrown value carries a Postgres error code, else ''. */
+function sqlState(e: unknown): string {
+  const code = typeof e === 'object' && e !== null ? (e as { code?: unknown }).code : undefined;
+  return typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code) ? ` SQLSTATE ${code}` : '';
 }
 
 type ReplyItem = Card | string;
@@ -52,9 +58,9 @@ export function makePeakReply(adapter: Pick<ChannelAdapter, 'reply'>) {
 }
 
 /** A fresh Peak client per inbound message; nothing is created at module load. */
-function makeDeps(adapter: Pick<ChannelAdapter, 'reply'>): PeakOrderDeps {
+function makeDeps(reply: PeakOrderDeps['reply']): PeakOrderDeps {
   return {
-    reply: makePeakReply(adapter),
+    reply,
     peak: createPeakReader(createPeakClient()),
     db: peakOrderDb,
     createOrder: createOrderFromForm,
@@ -71,19 +77,28 @@ export function buildPeakOrderArm(
   const cfg = peakOrderConfig(env);
   if (!cfg.enabled) return undefined;
 
-  // Never let anything escape into after(): log a fixed string + error class only
-  // (no message, no inbound text) and carry on with the next event.
+  const reply = makePeakReply(adapter);
+
+  // Never let anything escape into after(), and never stay silent (spec §4.6):
+  // log a fixed string + error class (+ SQLSTATE when there is one) only — no
+  // message, no inbound text — then answer TEXT.unexpected. If that reply
+  // fails too, log its class and carry on with the next event.
   const guarded = (where: string, run: (m: InboundMessage) => Promise<void>) => async (m: InboundMessage) => {
     try {
       await run(m);
     } catch (e) {
-      console.error(`[peak-order] ${where} failed: ${errClass(e)}`);
+      console.error(`[peak-order] ${where} failed: ${errClass(e)}${sqlState(e)}`);
+      try {
+        await reply(m, TEXT.unexpected);
+      } catch (e2) {
+        console.error(`[peak-order] ${where} apology reply failed: ${errClass(e2)}`);
+      }
     }
   };
 
   return {
     groupIds: cfg.groupIds,
-    handleText: guarded('text', (m) => handlePeakOrderText(m, makeDeps(adapter))),
-    handlePostback: guarded('postback', (m) => handlePeakOrderPostback(m, makeDeps(adapter))),
+    handleText: guarded('text', (m) => handlePeakOrderText(m, makeDeps(reply))),
+    handlePostback: guarded('postback', (m) => handlePeakOrderPostback(m, makeDeps(reply))),
   };
 }

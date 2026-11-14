@@ -19,6 +19,7 @@ vi.mock('@/lib/peak-order/handler', () => ({
 }));
 
 import { peakOrderConfig, buildPeakOrderArm, makePeakReply } from '@/lib/peak-order/deps';
+import { TEXT } from '@/lib/peak-order/flex';
 
 const KEY = Buffer.alloc(32, 3).toString('base64');
 const ENV_ON = { PEAK_ORDER_ENABLED: 'true', PEAK_ORDER_GROUP_IDS: 'G1', PEAK_TOKEN_ENC_KEY: KEY } as unknown as NodeJS.ProcessEnv;
@@ -106,6 +107,72 @@ describe('buildPeakOrderArm', () => {
     expect(logged).not.toContain('hunter2');
     expect(logged).not.toContain('SECRET-TEXT');
     expect(logged).not.toContain('tok');
+  });
+});
+
+describe('buildPeakOrderArm — an unexpected error is answered, never silent', () => {
+  const adapter = { reply: vi.fn<(m: InboundMessage, x: unknown) => Promise<void>>() };
+  let err: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  const logged = () => JSON.stringify(err.mock.calls);
+
+  it('text handler throws → exactly one reply with TEXT.unexpected', async () => {
+    textMock.mockRejectedValueOnce(new Error('relation "peak_order_staff" does not exist'));
+    adapter.reply.mockResolvedValue(undefined);
+    const arm = buildPeakOrderArm(adapter, ENV_ON)!;
+    await expect(arm.handleText(msg)).resolves.toBeUndefined();
+    expect(adapter.reply).toHaveBeenCalledTimes(1);
+    expect(adapter.reply).toHaveBeenCalledWith(msg, TEXT.unexpected);
+    expect(logged()).not.toContain('peak_order_staff');
+  });
+
+  it('postback handler throws → exactly one reply with TEXT.unexpected', async () => {
+    postbackMock.mockRejectedValueOnce(new TypeError('x is undefined'));
+    adapter.reply.mockResolvedValue(undefined);
+    const arm = buildPeakOrderArm(adapter, ENV_ON)!;
+    const pb = { ...msg, kind: 'postback' } as InboundMessage;
+    await expect(arm.handlePostback(pb)).resolves.toBeUndefined();
+    expect(adapter.reply).toHaveBeenCalledTimes(1);
+    expect(adapter.reply).toHaveBeenCalledWith(pb, TEXT.unexpected);
+  });
+
+  it('the apology reply throws too → nothing escapes, logged by class label only', async () => {
+    textMock.mockRejectedValueOnce(new Error('boom SECRET-A'));
+    adapter.reply.mockRejectedValue(new Error('LINE 400 SECRET-B'));
+    const arm = buildPeakOrderArm(adapter, ENV_ON)!;
+    await expect(arm.handleText(msg)).resolves.toBeUndefined();
+    expect(adapter.reply).toHaveBeenCalledTimes(1);
+    expect(logged()).not.toContain('SECRET-A');
+    expect(logged()).not.toContain('SECRET-B');
+    expect(err.mock.calls.length).toBe(2);
+  });
+
+  it('a thrown SQLSTATE code is logged (e.g. 42P01 table missing), the message is not', async () => {
+    const e = Object.assign(new Error('relation "peak_order_drafts" does not exist SECRET'), { code: '42P01' });
+    textMock.mockRejectedValueOnce(e);
+    adapter.reply.mockResolvedValue(undefined);
+    const arm = buildPeakOrderArm(adapter, ENV_ON)!;
+    await arm.handleText(msg);
+    expect(logged()).toContain('42P01');
+    expect(logged()).not.toContain('SECRET');
+    expect(logged()).not.toContain('peak_order_drafts');
+  });
+
+  it('a code that is not a SQLSTATE is not logged', async () => {
+    textMock.mockRejectedValueOnce(Object.assign(new Error('x'), { code: 'Bearer abc.def' }));
+    adapter.reply.mockResolvedValue(undefined);
+    await buildPeakOrderArm(adapter, ENV_ON)!.handleText(msg);
+    expect(logged()).not.toContain('Bearer');
+  });
+
+  it('a handler that returns silently (malformed postback) still sends nothing', async () => {
+    postbackMock.mockResolvedValueOnce(undefined);
+    const arm = buildPeakOrderArm(adapter, ENV_ON)!;
+    await arm.handlePostback({ ...msg, kind: 'postback', postbackData: 'garbage' } as InboundMessage);
+    expect(adapter.reply).not.toHaveBeenCalled();
   });
 });
 
