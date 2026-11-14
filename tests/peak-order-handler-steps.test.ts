@@ -1051,6 +1051,28 @@ describe('handlePeakOrderPostback — pick / rest', () => {
   });
 });
 
+describe('a job cancelled on the board frees the quotation line (dashboard definition of cancelled)', () => {
+  it('order pending + a cancelled row → /order starts a fresh draft, the claim takes the line over, the cancelled order is not adopted, exactly one new order', async () => {
+    const f = setup([Q1], {
+      orders: { 7030: { name: 'ไวนิลขนาด 1x2 เมตร', status: 'pending', jobCancelled: true, peak: { code: Q1.code, lineKeys: ['L1'] } } },
+      links: [{ qoCode: Q1.code, lineKey: 'L1', orderId: 7030, draftId: 'old', claimedAtMs: 0 }],
+    });
+    const marker = vi.spyOn(f.db, 'findOrderByPeakMarker');
+    await start(f, Q1.code);
+    expect(draft(f)).toMatchObject({ mode: 'single', step: 'unit' });
+    await toConfirm(f);
+    await tap(f, okCreate());
+    expect(marker).toHaveBeenCalledTimes(1);
+    await expect(marker.mock.results[0].value).resolves.toBeNull();
+    expect(f.created).toHaveLength(1);
+    const newId = Math.max(...f.db.orders.keys());
+    expect(newId).not.toBe(7030);
+    expect(f.db.links).toEqual([expect.objectContaining({ qoCode: Q1.code, lineKey: 'L1', orderId: newId, draftId: 'd1' })]);
+    expect(draft(f).step).toBe('done');
+    expect(last(f)).toEqual(createdCard({ orderId: newId, name: draft(f).units[0].name, pin: '4821', isDraft: false }));
+  });
+});
+
 describe('fakeDeps default createOrder', () => {
   it('order ids follow the current orders map (orders added after setup count)', async () => {
     const f = setup();

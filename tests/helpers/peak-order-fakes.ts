@@ -10,7 +10,11 @@
  *     takeable when no link row exists or the row is dead. Failure (and partial
  *     success) runs releaseClaim(code, draftId), like the SQL.
  *   - live link = (orderId null AND claimed ≤ 2 min ago) OR (orderId set AND
- *     the order exists AND its status is not 'cancelled').
+ *     the order is alive).
+ *   - an order is alive = it exists AND its status is not 'cancelled' AND it
+ *     has no `cancelled` row (jobCancelled — a job cancelled from the board).
+ *     ONE helper (orderAlive) decides this for claimLines, liveLinks,
+ *     openedCodes and findOrderByPeakMarker, like the SQL's shared predicate.
  * All time comparisons use the controllable clock; rows are copied in and out.
  */
 import type { InboundMessage } from '@/lib/ai-quote/channels/types';
@@ -26,6 +30,8 @@ export interface FakeOrder {
   status: string;
   /** The raw_data.peak marker findOrderByPeakMarker reads. */
   peak?: { code: string; lineKeys: string[] };
+  /** A `cancelled` row exists for this order (job cancelled from the board card). */
+  jobCancelled?: boolean;
 }
 
 export interface FakeLink {
@@ -65,10 +71,12 @@ export function fakeDb(seed: FakeDbSeed = {}): FakeDb {
     Object.entries(seed.staff ?? {}).map(([uid, orderer]) => [uid, { orderer, displayName: null, createdAt: nowIso() }]),
   );
 
+  const orderAlive = (o: FakeOrder | undefined): o is FakeOrder =>
+    o !== undefined && o.status !== 'cancelled' && !o.jobCancelled;
+
   const isLive = (l: FakeLink): boolean => {
     if (l.orderId === null) return nowMs() - l.claimedAtMs <= CLAIM_TTL_MS;
-    const o = orders.get(l.orderId);
-    return o !== undefined && o.status !== 'cancelled';
+    return orderAlive(orders.get(l.orderId));
   };
 
   const db: FakeDb = {
@@ -177,7 +185,7 @@ export function fakeDb(seed: FakeDbSeed = {}): FakeDb {
       const want = new Set(lineKeys);
       const hit = [...orders.entries()]
         .sort((a, b) => b[0] - a[0])
-        .find(([, o]) => o.status !== 'cancelled' && o.peak?.code === qoCode && o.peak.lineKeys.some((k) => want.has(k)));
+        .find(([, o]) => orderAlive(o) && o.peak?.code === qoCode && o.peak.lineKeys.some((k) => want.has(k)));
       return hit ? { id: hit[0], status: hit[1].status } : null;
     },
   };

@@ -258,7 +258,7 @@ describe('claimLines — per-line all-or-nothing claim', () => {
       "WHERE (peak_order_links.order_id IS NULL AND peak_order_links.claimed_at < NOW() - INTERVAL '2 minutes')",
     );
     expect(f).toContain(
-      "OR (peak_order_links.order_id IS NOT NULL AND NOT EXISTS ( SELECT 1 FROM orders o WHERE o.id = peak_order_links.order_id AND COALESCE(o.status, '') <> 'cancelled'))",
+      "OR (peak_order_links.order_id IS NOT NULL AND NOT EXISTS ( SELECT 1 FROM orders o WHERE o.id = peak_order_links.order_id AND COALESCE(o.status, '') <> 'cancelled' AND NOT EXISTS (SELECT 1 FROM cancelled c WHERE c.order_id = o.id)))",
     );
     expect(f).toMatch(/RETURNING line_key$/);
   });
@@ -315,7 +315,9 @@ describe('liveLinks / openedCodes', () => {
     const f = queries[0].flat;
     expect(f).toContain('LEFT JOIN orders o ON o.id = l.order_id');
     expect(f).toContain("l.order_id IS NULL AND l.claimed_at >= NOW() - INTERVAL '2 minutes'");
-    expect(f).toContain("COALESCE(o.status, '') <> 'cancelled'");
+    expect(f).toContain(
+      "OR (l.order_id IS NOT NULL AND o.id IS NOT NULL AND COALESCE(o.status, '') <> 'cancelled' AND NOT EXISTS (SELECT 1 FROM cancelled c WHERE c.order_id = o.id)))",
+    );
     expect(queries[0].values).toEqual(['QO-1']);
   });
 
@@ -334,7 +336,9 @@ describe('liveLinks / openedCodes', () => {
     const f = queries[0].flat;
     expect(f).toContain('jsonb_array_elements_text(?::jsonb)');
     expect(f).toContain("l.order_id IS NULL AND l.claimed_at >= NOW() - INTERVAL '2 minutes'");
-    expect(f).toContain("COALESCE(o.status, '') <> 'cancelled'");
+    expect(f).toContain(
+      "OR (l.order_id IS NOT NULL AND o.id IS NOT NULL AND COALESCE(o.status, '') <> 'cancelled' AND NOT EXISTS (SELECT 1 FROM cancelled c WHERE c.order_id = o.id)))",
+    );
   });
 });
 
@@ -344,7 +348,9 @@ describe('findOrderByPeakMarker', () => {
     expect(await db.findOrderByPeakMarker('QO-1', ['l2', 'l1'])).toEqual({ id: 26110005, status: 'draft' });
     const f = queries[0].flat;
     expect(f).toMatch(/^SELECT id, status FROM orders WHERE raw_data->'peak'->>'code' = \?/);
-    expect(f).toContain("COALESCE(status, '') <> 'cancelled'");
+    expect(f).toContain(
+      "COALESCE(status, '') <> 'cancelled' AND NOT EXISTS (SELECT 1 FROM cancelled c WHERE c.order_id = orders.id) AND EXISTS (SELECT 1 FROM jsonb_array_elements_text",
+    );
     expect(f).toContain(
       "EXISTS (SELECT 1 FROM jsonb_array_elements_text(raw_data->'peak'->'lineKeys') lk WHERE lk IN (SELECT jsonb_array_elements_text(?::jsonb)))",
     );

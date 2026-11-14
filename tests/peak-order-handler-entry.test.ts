@@ -596,6 +596,20 @@ describe('fakeDb reproduces lib/peak-order/db.ts semantics', () => {
     expect(await db.findOrderByPeakMarker('QO-2', ['X'])).toBeNull();
   });
 
+  it('a job cancelled on the board (jobCancelled, status still live) makes the order dead for all four', async () => {
+    const { db, clock } = mk();
+    db.orders.set(7, { name: 'board-cancelled', status: 'sent', jobCancelled: true, peak: { code: C, lineKeys: ['X'] } });
+    db.orders.set(8, { name: 'alive', status: 'sent', jobCancelled: false, peak: { code: 'QO-9', lineKeys: ['X'] } });
+    db.links.push(link(C, 'X', 7, clock.ms), link('QO-9', 'X', 8, clock.ms));
+    expect(await db.liveLinks(C)).toEqual([]);
+    expect(await db.openedCodes([C, 'QO-9'])).toEqual(new Set(['QO-9']));
+    expect(await db.findOrderByPeakMarker(C, ['X'])).toBeNull();
+    expect(await db.findOrderByPeakMarker('QO-9', ['X'])).toEqual({ id: 8, status: 'sent' });
+    expect(await db.claimLines('QO-9', ['X'], 'd9', 'z')).toBe(false);
+    expect(await db.claimLines(C, ['X'], 'd9', 'z')).toBe(true);
+    expect(db.links.find((l) => l.qoCode === C)).toMatchObject({ draftId: 'd9', orderId: null });
+  });
+
   it('fakeDeps default createOrder registers the order with its peak marker', async () => {
     const f = fakeDeps();
     const r = await f.deps.createOrder({ name: 'งาน', status: 'draft', peak: { code: C, lineKeys: ['L1'], draftId: 'd' } }, { role: 'sales', user: 'กิ๊ฟ (LINE)' });

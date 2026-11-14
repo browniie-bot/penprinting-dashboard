@@ -12,9 +12,14 @@ import type { UnitChoices, UnitPlan } from '@/lib/peak-order/mapper';
  *   peak_order_links  — (qo_code, line_key) → order: the duplicate guard
  *
  * Invariant: one Peak line ↔ at most one live work order. A link row is live
- * when order_id points at an orders row whose status is not 'cancelled', or
- * when order_id IS NULL and claimed_at is younger than 2 minutes (in-flight
- * claim). Anything else is dead and may be taken over by claimLines.
+ * when order_id points at an orders row that is alive, or when order_id IS
+ * NULL and claimed_at is younger than 2 minutes (in-flight claim). Anything
+ * else is dead and may be taken over by claimLines.
+ *
+ * An order is alive by the dashboard's own definition of "not cancelled"
+ * (lib/order-lock.ts, lib/orders-list.ts): the orders row exists, its status
+ * is not 'cancelled', AND no `cancelled` row exists for it (a job cancelled
+ * from the board card leaves status 'sent' + a cancelled row).
  *
  * JSONB is written as a string parameter with an explicit ::jsonb cast and read
  * back defensively (the driver may hand back a parsed value or a string).
@@ -232,7 +237,8 @@ export const peakOrderDb: PeakOrderDb = {
         LEFT JOIN orders o ON o.id = l.order_id
        WHERE l.qo_code = ${qoCode}
          AND ((l.order_id IS NULL AND l.claimed_at >= NOW() - INTERVAL '2 minutes')
-           OR (l.order_id IS NOT NULL AND o.id IS NOT NULL AND COALESCE(o.status, '') <> 'cancelled'))
+           OR (l.order_id IS NOT NULL AND o.id IS NOT NULL AND COALESCE(o.status, '') <> 'cancelled'
+               AND NOT EXISTS (SELECT 1 FROM cancelled c WHERE c.order_id = o.id)))
        ORDER BY l.line_key`;
     return (rows as Record<string, unknown>[]).map((r) => ({
       lineKey: str(r.line_key),
@@ -250,7 +256,8 @@ export const peakOrderDb: PeakOrderDb = {
         LEFT JOIN orders o ON o.id = l.order_id
        WHERE l.qo_code IN (SELECT jsonb_array_elements_text(${sortedKeysJson(codes)}::jsonb))
          AND ((l.order_id IS NULL AND l.claimed_at >= NOW() - INTERVAL '2 minutes')
-           OR (l.order_id IS NOT NULL AND o.id IS NOT NULL AND COALESCE(o.status, '') <> 'cancelled'))`;
+           OR (l.order_id IS NOT NULL AND o.id IS NOT NULL AND COALESCE(o.status, '') <> 'cancelled'
+               AND NOT EXISTS (SELECT 1 FROM cancelled c WHERE c.order_id = o.id)))`;
     return new Set((rows as Record<string, unknown>[]).map((r) => str(r.qo_code)));
   },
 
@@ -267,7 +274,8 @@ export const peakOrderDb: PeakOrderDb = {
          SET draft_id = EXCLUDED.draft_id, created_by = EXCLUDED.created_by, order_id = NULL, claimed_at = NOW()
        WHERE (peak_order_links.order_id IS NULL AND peak_order_links.claimed_at < NOW() - INTERVAL '2 minutes')
           OR (peak_order_links.order_id IS NOT NULL AND NOT EXISTS (
-                SELECT 1 FROM orders o WHERE o.id = peak_order_links.order_id AND COALESCE(o.status, '') <> 'cancelled'))
+                SELECT 1 FROM orders o WHERE o.id = peak_order_links.order_id AND COALESCE(o.status, '') <> 'cancelled'
+                   AND NOT EXISTS (SELECT 1 FROM cancelled c WHERE c.order_id = o.id)))
       RETURNING line_key`;
     if (rows.length < wanted) {
       await peakOrderDb.releaseClaim(qoCode, draftId);
@@ -295,6 +303,7 @@ export const peakOrderDb: PeakOrderDb = {
     const { rows } = await sql`
       SELECT id, status FROM orders
        WHERE raw_data->'peak'->>'code' = ${qoCode} AND COALESCE(status, '') <> 'cancelled'
+         AND NOT EXISTS (SELECT 1 FROM cancelled c WHERE c.order_id = orders.id)
          AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(raw_data->'peak'->'lineKeys') lk
                       WHERE lk IN (SELECT jsonb_array_elements_text(${sortedKeysJson(lineKeys)}::jsonb)))
        ORDER BY id DESC LIMIT 1`;
