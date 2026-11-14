@@ -124,3 +124,11 @@ Execution mode: subagent-driven (user chose "แบบ 1"). Controller model: fa
 - Task 6: minor (deferred): tests/peak-admin-routes.test.ts asserts only the format of the test route's `dateStart`, not the −30 d value
 - Task 6: minor (deferred): app/peak/page.tsx — the "เชื่อมต่อ Peak" link stays clickable when PEAK_TOKEN_ENC_KEY is missing (connect now bounces to error=config, so harmless); `ERROR_TEXT[sp.error]` lookup should use `Object.hasOwn`
 - Task 6: complete (commits d4ff73c..ed5cb7b, review clean after 1 fix round)
+- Task 7: BASE d51f61f — implementer (sonnet) DONE — commit a72cf3d; 1098 tests green; trailer verified before push.
+- Task 7: review (sonnet) ✅ spec compliant, Approved; no Critical/Important. Decisions the task left open, accepted: after auth the route always answers 200 (`{ok:false, alerted}` on a Peak failure); a throw from recordPeakError / recordPeakOk / claimDailyAlert / pushLine is caught and logged by class label only; no usable group id → error recorded, no push.
+- Task 7: ⚠️ "cannot verify" resolved by controller: full suite + type-check + lint green in the pre-commit hook of this ledger commit (1098). A real Vercel cron call and a real LINE push are untestable here — parked for the manual smoke.
+- Task 7: minor (deferred): app/api/cron/peak-keepalive/route.ts claims the 24 h alert slot BEFORE resolving the group id and before the push — a missing group id or one failed push consumes the day's alert (anti-goal "Peak dies silently": candidate for the final fix wave — resolve the target first, skip the claim when there is none)
+- Task 7: minor (deferred): tests/peak-keepalive.test.ts checks `dateStart` by shape only (a wrong offset would pass) — pin the clock and assert the exact −7 d value under both TZs
+- Task 7: minor (deferred): tests/peak-keepalive.test.ts never inspects `console.error` arguments for secrets (route is clean by inspection)
+- Task 7: minor (deferred): the cron checks only PEAK_ORDER_ENABLED, not the full three-env "enabled" rule — with the flag on and the key missing it records PeakConfigError and alerts (arguably desirable)
+- Task 7: complete (commits d51f61f..a72cf3d, review clean)
