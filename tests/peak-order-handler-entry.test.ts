@@ -338,6 +338,28 @@ describe('handlePeakOrderText — Peak failures', () => {
     expect(f.db.drafts.size).toBe(0);
   });
 
+  it('a command past the 25 s Peak budget → TEXT.peakUnavailable, no draft (real resolver limiter)', async () => {
+    const f = setup([Q1]);
+    let t = 1_000_000;
+    const now = vi.spyOn(Date, 'now').mockImplementation(() => t);
+    try {
+      const slowGet = f.peak.getQuotation;
+      f.deps.peak = {
+        ...f.peak,
+        getQuotation: async (c: string) => {
+          t += 26_000; // the quotation read alone takes 26 s
+          return slowGet(c);
+        },
+      };
+      await expect(handlePeakOrderText(textMsg('/order QO-202611000001'), f.deps)).resolves.toBeUndefined();
+    } finally {
+      now.mockRestore();
+    }
+    expect(f.replies).toEqual([TEXT.peakUnavailable]);
+    expect(f.db.drafts.size).toBe(0);
+    expect(f.peak.calls.filter((c) => c.m === 'getContactName')).toEqual([]); // never started
+  });
+
   it('any other error is not swallowed', async () => {
     const f = failing(new TypeError('boom'));
     await expect(handlePeakOrderText(textMsg('/order QO-202611000001'), f.deps)).rejects.toThrow('boom');

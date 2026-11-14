@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PeakQuotation, PeakQuotationRow, PeakReader } from '@/lib/peak/read';
-import { resolveOrderCommand } from '@/lib/peak-order/resolve';
+import { PeakUnavailableError } from '@/lib/peak/oauth';
+import { RESOLVE_BUDGET_MS, resolveOrderCommand } from '@/lib/peak-order/resolve';
 
 const row = (n: number, contactCode = 'C1'): PeakQuotationRow => ({
   code: `QO-2026090${String(n).padStart(4, '0')}`,
@@ -221,5 +222,79 @@ describe('resolveOrderCommand', () => {
     await resolveOrderCommand({ kind: 'text', words: ['a', 'ไวนิล'] }, { peak: f.reader, openedCodes: opened(), todayISO: TODAY });
     expect(f.max()).toBeGreaterThan(1);
     expect(f.max()).toBeLessThanOrEqual(3);
+  });
+
+  describe('wall-clock budget per command', () => {
+    const pool = Array.from({ length: 20 }, (_, i) => row(i + 1, `C${i + 1}`));
+    /** Every Peak call advances the injected clock by `stepMs` when it starts. */
+    const slow = (stepMs: number) => {
+      let t = 0;
+      const tick = <A extends unknown[], T>(fn: (...a: A) => Promise<T>) => async (...a: A) => {
+        t += stepMs;
+        return fn(...a);
+      };
+      const f = fake({
+        listQuotations: tick(async (q: { searchText?: string }) => (q.searchText === 'a' ? { rows: pool, total: 20 } : { rows: [], total: 0 })),
+        newestQuotations: tick(async () => pool),
+        getQuotation: tick(async (c: string) => quot(pool.find((r) => r.code === c)!, 'ไวนิล')),
+        getContactName: tick(async () => 'n'),
+      });
+      // `starts` = the injected clock at the moment the limiter hands each call to the reader.
+      const starts: number[] = [];
+      const reader = Object.fromEntries(
+        (Object.keys(f.reader) as (keyof PeakReader)[]).map((k) => [
+          k,
+          (...a: unknown[]) => {
+            starts.push(t);
+            return (f.reader[k] as (...x: unknown[]) => unknown)(...a);
+          },
+        ]),
+      ) as unknown as PeakReader;
+      return { ...f, reader, starts, nowMs: () => t };
+    };
+
+    it('the production budget is 25 s', () => {
+      expect(RESOLVE_BUDGET_MS).toBe(25_000);
+    });
+
+    it('6 s per call: a text+filter command rejects with PeakUnavailableError and stops calling Peak', async () => {
+      const f = slow(6_000);
+      await expect(
+        resolveOrderCommand(
+          { kind: 'text', words: ['a', 'ไวนิล'] },
+          { peak: f.reader, openedCodes: opened(), todayISO: TODAY, limits: { nowMs: f.nowMs } },
+        ),
+      ).rejects.toBeInstanceOf(PeakUnavailableError);
+      // no call starts once more than 25 s have passed; some calls were refused
+      expect(f.starts.length).toBeGreaterThan(2);
+      expect(f.starts.length).toBeLessThan(22); // 1 list + 1 newest + 20 details unbudgeted
+      expect(Math.max(...f.starts)).toBeLessThanOrEqual(RESOLVE_BUDGET_MS);
+      const n = f.calls.length;
+      await new Promise((r) => setTimeout(r, 30));
+      expect(f.calls.length).toBe(n);
+      expect(f.starts.length).toBe(n);
+    });
+
+    it('a fast reader is unaffected (same result as without a clock)', async () => {
+      const f = slow(10);
+      const r = await resolveOrderCommand(
+        { kind: 'text', words: ['a', 'ไวนิล'] },
+        { peak: f.reader, openedCodes: opened(), todayISO: TODAY, limits: { nowMs: f.nowMs } },
+      );
+      expect(r.kind).toBe('choices');
+    });
+
+    it('a custom budget is honoured', async () => {
+      const f = slow(1_000);
+      await expect(
+        resolveOrderCommand({ kind: 'text', words: ['a', 'ไวนิล'] }, {
+          peak: f.reader,
+          openedCodes: opened(),
+          todayISO: TODAY,
+          limits: { nowMs: f.nowMs, budgetMs: 500 },
+        }),
+      ).rejects.toBeInstanceOf(PeakUnavailableError);
+      expect(f.calls.length).toBe(1);
+    });
   });
 });

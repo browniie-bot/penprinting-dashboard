@@ -1,5 +1,6 @@
 import 'server-only';
 import type { PeakQuotation, PeakQuotationRow, PeakReader } from '@/lib/peak/read';
+import { PeakUnavailableError } from '@/lib/peak/oauth';
 import type { OrderCommand } from '@/lib/peak-order/command';
 import { addDaysISO, firstLine } from '@/lib/peak-order/mapper';
 
@@ -18,6 +19,11 @@ export type Resolved =
 
 export const MAX_PEAK_CALLS = 40;
 export const PEAK_CONCURRENCY = 3;
+/**
+ * Wall-clock budget for all Peak calls of one command. The LINE route has 60 s
+ * (maxDuration); DB work and the LINE reply need the rest.
+ */
+export const RESOLVE_BUDGET_MS = 25_000;
 const SHOWN = 5;
 const FILTER_POOL = 20;
 
@@ -25,8 +31,18 @@ const FILTER_POOL = 20;
  * Wraps a PeakReader so EVERY Peak call counts against a hard cap and shares a
  * concurrency limit. Once the cap is hit, calls are not made and return an
  * empty value (null / [] / total 0), so the caller returns what it has.
+ * Time is capped too: a call that would START after `budgetMs` since the
+ * limiter was made throws PeakUnavailableError ("Peak ไม่ตอบ") instead, and so
+ * does every later one — no further Peak call is started.
  */
-function limitReader(inner: PeakReader, maxCalls: number, concurrency: number): PeakReader {
+function limitReader(
+  inner: PeakReader,
+  maxCalls: number,
+  concurrency: number,
+  budgetMs: number,
+  nowMs: () => number,
+): PeakReader {
+  const startedAt = nowMs();
   let calls = 0;
   let active = 0;
   const waiters: Array<() => void> = [];
@@ -36,6 +52,7 @@ function limitReader(inner: PeakReader, maxCalls: number, concurrency: number): 
     if (active >= concurrency) await new Promise<void>((r) => waiters.push(r));
     else active++;
     try {
+      if (nowMs() - startedAt > budgetMs) throw new PeakUnavailableError('Peak resolve time budget exceeded');
       return await fn();
     } finally {
       const next = waiters.shift();
@@ -59,11 +76,17 @@ export async function resolveOrderCommand(
     peak: PeakReader;
     openedCodes: (codes: string[]) => Promise<Set<string>>;
     todayISO: string;
-    /** Test hook; defaults are the production limits. */
-    limits?: { maxCalls?: number; concurrency?: number };
+    /** Test hook; defaults are the production limits and the real clock. */
+    limits?: { maxCalls?: number; concurrency?: number; budgetMs?: number; nowMs?: () => number };
   },
 ): Promise<Resolved> {
-  const peak = limitReader(deps.peak, deps.limits?.maxCalls ?? MAX_PEAK_CALLS, deps.limits?.concurrency ?? PEAK_CONCURRENCY);
+  const peak = limitReader(
+    deps.peak,
+    deps.limits?.maxCalls ?? MAX_PEAK_CALLS,
+    deps.limits?.concurrency ?? PEAK_CONCURRENCY,
+    deps.limits?.budgetMs ?? RESOLVE_BUDGET_MS,
+    deps.limits?.nowMs ?? Date.now,
+  );
 
   const quotCache = new Map<string, Promise<PeakQuotation | null>>();
   const getQ = (code: string) => {
