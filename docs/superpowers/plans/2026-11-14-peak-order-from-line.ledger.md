@@ -206,3 +206,13 @@ Execution mode: subagent-driven (user chose "แบบ 1"). Controller model: fa
 - Task 14: minor (deferred): no render test for /peak or the staff list (tail-4 display and the listStaff-failure message are verified by reading only)
 - Task 14: minor (deferred): tests/peak-order-deps.test.ts log-leak assertion `not.toContain('tok')` is loose
 - Task 14: complete (commits 3a664dd..b08e9f2, review clean)
+- Task 15: BASE 92c12a0 — implementer (sonnet) DONE — commit 3aa10ae (docs only: CLAUDE.md, NEXT-SESSION.md, PATTERNS.md §12.1–12.2, dashboard-v2.md, design-ai-quoting.md §7 + §10); 1444 tests green; no file under app/ lib/ components/ tests/ touched.
+- Task 15: review (sonnet) ✅ spec compliant, Approved; no Critical/Important. The reviewer checked every route / method / auth, env var, table name, source-of-truth path, cron expression (`30 0 * * *` UTC = 07:30 Bangkok), number (30 min TTL, 2 min stale window, 60 s maxDuration, 300-char postback) and all commit hashes against the code and `git log`; the six queued user actions match the task text and spec §6.8 in order; every place that describes the feature says branch / draft PR / not merged / not deployed / migration not run / flag off.
+- Task 15: ⚠️ "cannot verify" resolved by controller: "15 characterization cases" = 15 `it(...)` in tests/orders-add-route.test.ts (+6 in tests/orders-create.test.ts), all green. "PRO Plus 100 free credits/month" is assembled from spec §1 + §9 and the plan's Task 15 text (not one literal sentence in the spec) — kept as the plan states it. "Changing PEAK_TOKEN_ENC_KEY makes stored tokens undecryptable" follows from AES-256-GCM in lib/peak/crypto.ts (decrypt with another key fails the auth tag → PeakConfigError, covered by the tampered/bad-key tests).
+- Task 15: minor (deferred): dashboard-v2.md new §10 entry — the `> ⚠️` status blockquote swallows the following bold paragraphs (no blank line after it)
+- Task 15: minor (deferred): NEXT-SESSION.md new entry says "27 commits" for `git log 4a2c921..HEAD` (28 with the docs commit; more after the final wave) — reword
+- Task 15: minor (deferred): design-ai-quoting.md §7 says one quotation opens "ชุดเดียว" — the guard is per quotation LINE (dashboard-v2 says it correctly)
+- Task 15: minor (deferred): CLAUDE.md + dashboard-v2.md §11 describe PEAK_ORDER_ENABLED as if the flag alone turned /order on — say all three env values are required
+- Task 15: minor (deferred): design-ai-quoting.md §2 still quotes the superseded PEAK API prices with a pointer to §10
+- Task 15: complete (commits 92c12a0..3aa10ae, review clean)
+- ALL 15 TASKS COMPLETE. Next: whole-branch review (most capable model) against the spec's anti-goals + every `minor (deferred)` line above; one fix wave; PR #29 body; session-end docs.
