@@ -142,3 +142,10 @@ Execution mode: subagent-driven (user chose "แบบ 1"). Controller model: fa
 - Task 8: minor (deferred): lib/peak-order/mapper.ts merged plan with a single line drops the ` (+N รายการ)` suffix — untested
 - Task 8: minor (deferred): lib/peak-order/resolve.ts `nameOf` does not trim (the reader already trims)
 - Task 8: complete (commits 525f64b..a119067, review clean after 1 fix round)
+- Task 9: BASE cd7a1fa — implementer (sonnet) DONE — commit f587186; 1229 tests green (the two modified LINE test files only gained cases — no existing expectation changed).
+- Task 9: review (sonnet) ✅ spec compliant, Approved; no Critical/Important. Verified by the reviewer against BASE: the two new routes sit right after the `staff-echo` line, nothing reordered; with `peakOrderGroupIds` undefined/empty every input routes exactly as before; rooms, 1-on-1 and non-allow-listed groups unchanged.
+- Task 9: wire format (builder's choice, spec §7): `po1|<action>|f1|f2|f3`, text fields escaped `%`→`%25`, `|`→`%7C`; indexes are canonical decimals ≤ 999; `decodePostback` returns `null` on anything malformed and never throws.
+- Ruling (carry into Task 11 + 13 dispatches): `encodePostback` THROWS RangeError for a non-`who` variant that cannot fit 300 chars or has an out-of-range index — so no card builder may pass an untrusted, unbounded value (a quotation `code` straight from Peak, a staff id) without first checking it encodes; a quotation whose code cannot be encoded is shown without its button (or refused), never allowed to crash the handler inside `after()` — cost if wrong: one malformed Peak code would kill the reply for the whole command.
+- Task 9: minor (deferred): lib/peak-order/postback.ts encoder accepts an empty `draft`/`code` that the decoder then rejects (no round-trip; harmless while callers pass real ids)
+- Task 9: minor (deferred): tests/ai-quote-line-parse.test.ts pins `postbackParams: { date: undefined }` via `toEqual` (which ignores undefined keys) — cosmetic
+- Task 9: complete (commits cd7a1fa..f587186, review clean)
